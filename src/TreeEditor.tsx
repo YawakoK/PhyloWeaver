@@ -55,7 +55,7 @@ const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#e3a827] text-white text-base f
 const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#e3a827] text-white text-base font-bold  transition-all duration-200 hover:bg-[#e3a827] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#e3a827]";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
-const GITHUB_URL = "https://github.com/yawako/PhyloWeaver";
+const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
 
 type ColorSelectorProps = {
