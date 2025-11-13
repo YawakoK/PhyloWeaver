@@ -30,7 +30,7 @@ https://yawak.jp/PhyloWeaver/
 
 * **Input:** Newick (`.nwk`, `.newick`, `.tre`, `.tree`)
 
-## 🛠 Development notes
+## Development notes
 
 * **Framework:** React + TypeScript
 * **Build tool:** Vite
