@@ -7,7 +7,7 @@ https://yawak.jp/PhyloWeaver/
 
 ---
 
-## ✨ Features
+## Features
 
 - **Newick import**
   - Load phylogenetic trees in standard Newick format.
@@ -15,24 +15,24 @@ https://yawak.jp/PhyloWeaver/
   - Reroot trees
   - Flip subtrees
   - Add / delete leaves
-  - Edit tip labels
+  - Edit tip labels / branch length
 - **Two layout modes**
   - Phylogram (branch lengths)
   - Cladogram (equal branch lengths)
 - **Search function**
   - Highlight nodes by taxon name
 - **Styling options**
-  - Adjust branch width, colors, fonts, and other display settings
+  - Adjust branch width, colors, and other display settings
 - **Export options**
-  - Export the current view as SVG (PDF/PNG planned)
+  - Export the current view as NEWICK file, tip list, and image (SVG/PDF/PNG).
 
 ---
 
-## 🚀 Getting Started (Local Development)
+## Getting Started (Local Development)
 
 This project uses **React**, **TypeScript**, and **Vite**.
 
-### 1. Clone and install
+### Clone and install
 
 ```bash
 git clone https://github.com/YawakoK/PhyloWeaver.git
