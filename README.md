@@ -5,7 +5,6 @@ It provides an intuitive interface for manipulating tree topology, adjusting lay
 
 https://yawak.jp/PhyloWeaver/
 
----
 
 ## Features
 
@@ -26,15 +25,10 @@ https://yawak.jp/PhyloWeaver/
 - **Export options**
   - Export the current view as NEWICK file, tip list, and image (SVG/PDF/PNG).
 
----
 
-
-## 📄 Supported formats
+## Supported formats
 
 * **Input:** Newick (`.nwk`, `.newick`, `.tre`, `.tree`)
-
-
----
 
 ## 🛠 Development notes
 
@@ -45,21 +39,19 @@ https://yawak.jp/PhyloWeaver/
 
 The source code is modular and organized to simplify extension and customization.
 
----
 
 ## Citation
 
 If you use PhyloWeaver in academic work, please cite:
 
-> Kawaguchi YW. *PhyloWeaver: an interactive web editor for phylogenetic trees.* 
+> Kawaguchi YW. (2025) *PhyloWeaver: an interactive web editor for phylogenetic trees.* 
 
 
----
 
 ## License
 
 This project is licensed under the **MIT License**.
 See the [LICENSE](LICENSE) file for details.
 
----
+
 
