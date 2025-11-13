@@ -28,13 +28,38 @@ https://yawak.jp/PhyloWeaver/
 
 ---
 
-## Getting Started (Local Development)
 
-This project uses **React**, **TypeScript**, and **Vite**.
+## 📄 Supported formats
 
-### Clone and install
+* **Input:** Newick (`.nwk`, `.newick`, `.tre`, `.tree`)
 
-```bash
-git clone https://github.com/YawakoK/PhyloWeaver.git
-cd PhyloWeaver
-npm install
+
+---
+
+## 🛠 Development notes
+
+* **Framework:** React + TypeScript
+* **Build tool:** Vite
+* **Visualization:** D3.js
+* **Styling:** Tailwind CSS
+
+The source code is modular and organized to simplify extension and customization.
+
+---
+
+## Citation
+
+If you use PhyloWeaver in academic work, please cite:
+
+> Kawaguchi YW. *PhyloWeaver: an interactive web editor for phylogenetic trees.* 
+
+
+---
+
+## License
+
+This project is licensed under the **MIT License**.
+See the [LICENSE](LICENSE) file for details.
+
+---
+
