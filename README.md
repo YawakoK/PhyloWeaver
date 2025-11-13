@@ -1,4 +1,6 @@
-# PhyloWeaver: Interactive phylogeny editor
+![](src/assets/icons/logo.svg)
+
+## Overview
 
 **PhyloWeaver** is a browser-based tool for interactive editing and visualization of phylogenetic trees.  
 It provides an intuitive interface for manipulating tree topology, adjusting layouts, and producing high-quality figures for research and teaching.
