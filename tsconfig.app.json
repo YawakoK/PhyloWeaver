@@ -25,5 +25,5 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"],
-  "exclude": ["src/TreeEditor??.tsx"]
+  "exclude": ["src/TreeEditor??.tsx", "src/backup"]
 }
