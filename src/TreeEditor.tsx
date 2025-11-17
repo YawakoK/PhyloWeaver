@@ -349,6 +349,7 @@ export default function TreeEditor(){
   const [leafLabelSize,setLeafLabelSize]=useState(15);
   const [nodeLabelSize,setNodeLabelSize]=useState(11);
   const [branchLabelSize,setBranchLabelSize]=useState(10);
+  const [supportLabelSize,setSupportLabelSize]=useState(10);
   const [branchLenOffsetX,setBranchLenOffsetX]=useState(0);
   const [branchLenOffsetY,setBranchLenOffsetY]=useState(-4);
   const [bootstrapOffsetX,setBootstrapOffsetX]=useState(0);
@@ -362,7 +363,10 @@ export default function TreeEditor(){
   const [showBranchLen,setShowBranchLen]=useState(false);
   const [showBootstrap,setShowBootstrap]=useState(false);
   const [showNodeDots,setShowNodeDots]=useState(false);
+  const [leafNodeDotSize,setLeafNodeDotSize]=useState(2.5);
+  const [internalNodeDotSize,setInternalNodeDotSize]=useState(3.5);
   const [search,setSearch]=useState("");
+  const [searchFocusIndex,setSearchFocusIndex]=useState(0);
   const [zoomK,setZoomK]=useState(1);
   const [branchLengthInput,setBranchLengthInput]=useState("");
   const [branchWidthInput,setBranchWidthInput]=useState(()=>String(1.5));
@@ -476,6 +480,7 @@ export default function TreeEditor(){
   const [pngScale, setPngScale] = useState(3); // crisp 3x default
 
   const svgRef=useRef<SVGSVGElement|null>(null); const gRef=useRef<SVGGElement|null>(null); const rightPaneRef=useRef<HTMLDivElement|null>(null); const zoomRef=useRef<d3.ZoomBehavior<SVGSVGElement, unknown>|null>(null);
+  const zoomTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
   const paneSizeRef = useRef<{w:number;h:number}>({ w: 1200, h: 600 });
   const userAdjustedZoomRef = useRef<boolean>(false);
   const userSetWidthRef = useRef<boolean>(false);
@@ -774,6 +779,7 @@ export default function TreeEditor(){
     const onZoom=(ev: d3.D3ZoomEvent<SVGSVGElement, unknown>)=>{
       if(ev.sourceEvent) userAdjustedZoomRef.current = true;
       g.attr("transform", `translate(${ev.transform.x + baseTranslateX},${ev.transform.y + baseTranslateY}) scale(${ev.transform.k})`);
+      zoomTransformRef.current = ev.transform;
       setZoomK(ev.transform.k||1);
     };
     const zoom=d3.zoom<SVGSVGElement, unknown>().on("zoom", onZoom);
@@ -829,6 +835,35 @@ export default function TreeEditor(){
       return next;
     });
   },[fitToViewport]);
+
+  const focusOnPoint = useCallback((targetX: number, targetY: number, options?: { scale?: number; preserveScale?: boolean })=>{
+    const svgNode = svgRef.current;
+    const zoomBehavior = zoomRef.current;
+    if(!svgNode || !zoomBehavior) return;
+    const { w, h } = paneSizeRef.current;
+    const centerX = w / 2;
+    const centerY = h / 2;
+    const minScale = 1.35;
+    const maxScale = 4;
+    const currentTransform = zoomTransformRef.current ?? d3.zoomIdentity;
+    const preserve = Boolean(options?.preserveScale);
+    const baseScale = (()=> {
+      if(Number.isFinite(options?.scale)) return options?.scale as number;
+      if(preserve) return Number.isFinite(currentTransform.k) ? currentTransform.k : zoomK;
+      return zoomK;
+    })();
+    const targetScale = preserve
+      ? Math.min(maxScale, Math.max(0.1, Number.isFinite(baseScale) ? baseScale : 1))
+      : Math.min(maxScale, Math.max(minScale, Number.isFinite(baseScale) ? baseScale : minScale));
+    const tx = centerX - baseTranslateX - targetScale * targetX;
+    const ty = centerY - baseTranslateY - targetScale * targetY;
+    const svgSelection = d3.select<SVGSVGElement, unknown>(svgNode);
+    svgSelection
+      .transition()
+      .duration(preserve ? 120 : 250)
+      .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(targetScale));
+    userAdjustedZoomRef.current = true;
+  },[baseTranslateX, baseTranslateY, zoomK]);
 
   const applyAutoHorizontalScale = useCallback(()=>{
     userSetWidthRef.current = false;
@@ -961,6 +996,51 @@ export default function TreeEditor(){
   },[search, tree, useRegex]);
 
   useEffect(()=>{ setRegexError(searchSetError); },[searchSetError]);
+
+  const searchMatches = useMemo(()=> {
+    if(!searchSet.size) return [];
+    const ordered = nodes
+      .map((n)=> {
+        const nodeId = n.d.data.__id;
+        if(nodeId === undefined || !searchSet.has(nodeId)) return null;
+        return { id: nodeId, x: n.x, y: n.y };
+      })
+      .filter((d): d is { id: number; x: number; y: number } => Boolean(d));
+    return ordered;
+  },[nodes, searchSet]);
+
+  const activeSearchTarget = searchMatches.length
+    ? searchMatches[Math.min(searchFocusIndex, searchMatches.length - 1)]
+    : null;
+  const activeSearchNodeId = activeSearchTarget?.id ?? null;
+  const hasSearchMatches = searchMatches.length > 0;
+  const searchPositionLabel = hasSearchMatches ? `${searchFocusIndex + 1} / ${searchMatches.length}` : "0 / 0";
+
+  useEffect(()=>{
+    setSearchFocusIndex(0);
+  },[search, useRegex]);
+
+  useEffect(()=>{
+    if(!searchMatches.length){
+      setSearchFocusIndex(0);
+      return;
+    }
+    setSearchFocusIndex(prev=>{
+      const next = Math.max(0, Math.min(prev, searchMatches.length - 1));
+      return next;
+    });
+  },[searchMatches.length]);
+
+  const handleSearchNavigate = useCallback((direction: 1 | -1)=>{
+    setSearchFocusIndex(prev=>{
+      const count = searchMatches.length;
+      if(count <= 0) return 0;
+      const next = (prev + direction + count) % count;
+      const target = searchMatches[next];
+      if(target) focusOnPoint(target.x, target.y, { preserveScale: true });
+      return next;
+    });
+  },[searchMatches, focusOnPoint]);
 
   // Loading helpers
   function handleFileLoad(files: FileList | null){
@@ -1397,12 +1477,6 @@ export default function TreeEditor(){
             <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Leaf label size</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={leafLabelSize} onChange={(e)=>setLeafLabelSize(parseFloat(e.target.value)||15)} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Node label size</label>
-              <input type="number" className={`${INPUT_CLASSES} w-24`} value={nodeLabelSize} onChange={(e)=>setNodeLabelSize(parseFloat(e.target.value)||11)} />
-            </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Branch text size</label>
-              <input type="number" className={`${INPUT_CLASSES} w-24`} value={branchLabelSize} onChange={(e)=>setBranchLabelSize(parseFloat(e.target.value)||10)} />
-            </div>
             <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Tip X offset</label>
               <input
                 type="number"
@@ -1435,107 +1509,169 @@ export default function TreeEditor(){
               <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
               <span>Italic tip labels</span>
             </label>
-            <label className="flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={showNodeLabels} onChange={(e)=>setShowNodeLabels(e.target.checked)} />
-              <span>Show internal node labels</span>
-            </label>
-            <label className="flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={showBranchLen} onChange={(e)=>setShowBranchLen(e.target.checked)} />
-              <span>Show branch lengths</span>
-            </label>
-            <label className="flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={showBootstrap} onChange={(e)=>setShowBootstrap(e.target.checked)} />
-              <span>Show support values</span>
-            </label>
-            <label className="flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={showNodeDots} onChange={(e)=>setShowNodeDots(e.target.checked)} />
-              <span>Show node dots</span>
-            </label>
-            <div className="pt-2 border-t border-slate-200 space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Branch label offsets (px)</span>
-              <p className="text-xs text-slate-500">Positive X moves text to the right; positive Y moves it downward.</p>
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-slate-600">Length offset</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">X</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={branchLenOffsetX}
-                    step={1}
-                    onChange={(e)=>{
-                      const next=parseFloat(e.target.value);
-                      setBranchLenOffsetX(Number.isFinite(next)?next:0);
-                    }}
-                  />
-                  <span className="text-xs text-slate-500">Y</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={branchLenOffsetY}
-                    step={1}
-                    onChange={(e)=>{
-                      const next=parseFloat(e.target.value);
-                      setBranchLenOffsetY(Number.isFinite(next)?next:0);
-                    }}
-                  />
+            <div className="pt-3 border-t border-slate-200 space-y-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Show</span>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
+                  <label className="flex items-center gap-2 text-slate-700 font-medium">
+                    <input type="checkbox" checked={showNodeLabels} onChange={(e)=>setShowNodeLabels(e.target.checked)} />
+                    <span>Internal node labels</span>
+                  </label>
+                  {showNodeLabels && (
+                    <div className="space-y-3 text-sm text-slate-600 pl-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Text size</span>
+                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={nodeLabelSize} onChange={(e)=>setNodeLabelSize(parseFloat(e.target.value)||11)} />
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Offset</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">X</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-20`}
+                            value={nodeLabelOffsetX}
+                            step={1}
+                            onChange={(e)=>{
+                              const next=parseFloat(e.target.value);
+                              setNodeLabelOffsetX(Number.isFinite(next)?next:-4);
+                            }}
+                          />
+                          <span className="text-xs text-slate-500">Y</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-20`}
+                            value={nodeLabelOffsetY}
+                            step={1}
+                            onChange={(e)=>{
+                              const next=parseFloat(e.target.value);
+                              setNodeLabelOffsetY(Number.isFinite(next)?next:-6);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-slate-600">Support offset</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">X</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={bootstrapOffsetX}
-                    step={1}
-                    onChange={(e)=>{
-                      const next=parseFloat(e.target.value);
-                      setBootstrapOffsetX(Number.isFinite(next)?next:0);
-                    }}
-                  />
-                  <span className="text-xs text-slate-500">Y</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={bootstrapOffsetY}
-                    step={1}
-                    onChange={(e)=>{
-                      const next=parseFloat(e.target.value);
-                      setBootstrapOffsetY(Number.isFinite(next)?next:0);
-                    }}
-                  />
+                <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
+                  <label className="flex items-center gap-2 text-slate-700 font-medium">
+                    <input type="checkbox" checked={showBranchLen} onChange={(e)=>setShowBranchLen(e.target.checked)} />
+                    <span>Branch lengths</span>
+                  </label>
+                  {showBranchLen && (
+                    <div className="space-y-3 text-sm text-slate-600 pl-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Text size</span>
+                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={branchLabelSize} onChange={(e)=>setBranchLabelSize(parseFloat(e.target.value)||10)} />
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Offset</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">X</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-20`}
+                            value={branchLenOffsetX}
+                            step={1}
+                            onChange={(e)=>{
+                              const next=parseFloat(e.target.value);
+                              setBranchLenOffsetX(Number.isFinite(next)?next:0);
+                            }}
+                          />
+                          <span className="text-xs text-slate-500">Y</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-20`}
+                            value={branchLenOffsetY}
+                            step={1}
+                            onChange={(e)=>{
+                              const next=parseFloat(e.target.value);
+                              setBranchLenOffsetY(Number.isFinite(next)?next:0);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </div>
-            <div className="pt-2 border-t border-slate-200 space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Internal node label offsets (px)</span>
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-slate-600">Node label offset</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">X</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={nodeLabelOffsetX}
-                    step={1}
-                    onChange={(e)=>{
-                      const next=parseFloat(e.target.value);
-                      setNodeLabelOffsetX(Number.isFinite(next)?next:-4);
-                    }}
-                  />
-                  <span className="text-xs text-slate-500">Y</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={nodeLabelOffsetY}
-                    step={1}
-                    onChange={(e)=>{
-                      const next=parseFloat(e.target.value);
-                      setNodeLabelOffsetY(Number.isFinite(next)?next:-6);
-                    }}
-                  />
+                <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
+                  <label className="flex items-center gap-2 text-slate-700 font-medium">
+                    <input type="checkbox" checked={showBootstrap} onChange={(e)=>setShowBootstrap(e.target.checked)} />
+                    <span>Support values</span>
+                  </label>
+                  {showBootstrap && (
+                    <div className="space-y-3 text-sm text-slate-600 pl-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Text size</span>
+                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={supportLabelSize} onChange={(e)=>setSupportLabelSize(parseFloat(e.target.value)||10)} />
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Offset</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">X</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-20`}
+                            value={bootstrapOffsetX}
+                            step={1}
+                            onChange={(e)=>{
+                              const next=parseFloat(e.target.value);
+                              setBootstrapOffsetX(Number.isFinite(next)?next:0);
+                            }}
+                          />
+                          <span className="text-xs text-slate-500">Y</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-20`}
+                            value={bootstrapOffsetY}
+                            step={1}
+                            onChange={(e)=>{
+                              const next=parseFloat(e.target.value);
+                              setBootstrapOffsetY(Number.isFinite(next)?next:0);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
+                  <label className="flex items-center gap-2 text-slate-700 font-medium">
+                    <input type="checkbox" checked={showNodeDots} onChange={(e)=>setShowNodeDots(e.target.checked)} />
+                    <span>Node dots</span>
+                  </label>
+                  {showNodeDots && (
+                    <div className="space-y-3 text-sm text-slate-600 pl-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Leaf size</span>
+                        <input
+                          type="number"
+                          className={`${INPUT_CLASSES} w-20`}
+                          value={leafNodeDotSize}
+                          min={0}
+                          step={0.5}
+                          onChange={(e)=>{
+                            const next=parseFloat(e.target.value);
+                            setLeafNodeDotSize(Number.isFinite(next)?Math.max(0,next):2.5);
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Internal size</span>
+                        <input
+                          type="number"
+                          className={`${INPUT_CLASSES} w-20`}
+                          value={internalNodeDotSize}
+                          min={0}
+                          step={0.5}
+                          onChange={(e)=>{
+                            const next=parseFloat(e.target.value);
+                            setInternalNodeDotSize(Number.isFinite(next)?Math.max(0,next):3.5);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1739,6 +1875,27 @@ export default function TreeEditor(){
                   <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
                   Use regular expressions
                 </label>
+                {hasSearchMatches && (
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span>{searchPositionLabel}</span>
+                    <div className="flex gap-2">
+                      <button
+                        className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                        onClick={()=>handleSearchNavigate(-1)}
+                        disabled={!hasSearchMatches}
+                      >
+                        ←
+                      </button>
+                      <button
+                        className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                        onClick={()=>handleSearchNavigate(1)}
+                        disabled={!hasSearchMatches}
+                      >
+                        →
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>Clear</button>
                   {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
@@ -1840,7 +1997,7 @@ export default function TreeEditor(){
                       <text x={midX + branchLenOffsetX} y={target.y + branchLenOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-600 select-none">{branchLenValue.toFixed(3)}</text>
                     )}
                     {showBootstrap && typeof supportValue === 'string' && supportValue.trim() && !Number.isNaN(parseFloat(supportValue)) && (
-                      <text x={midX + bootstrapOffsetX} y={target.y + bootstrapOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-500 select-none">{supportValue}</text>
+                      <text x={midX + bootstrapOffsetX} y={target.y + bootstrapOffsetY} fontSize={supportLabelSize} textAnchor="middle" className="fill-slate-500 select-none">{supportValue}</text>
                     )}
                   </g>
                 );
@@ -1855,7 +2012,7 @@ export default function TreeEditor(){
                 const isCollapsedLeaf = Boolean(isDisplayLeaf && n.d.data.__isCollapsedPlaceholder);
                 const isSimpleLeaf = isDisplayLeaf && !isCollapsedLeaf;
                 const nodeColor = n.d.data.__color;
-                const r=isDisplayLeaf?2.5:3.5;
+                const r=isDisplayLeaf ? Math.max(0, leafNodeDotSize) : Math.max(0, internalNodeDotSize);
                 const baseCircleFill = isDisplayLeaf ? (nodeColor || '#111827') : '#374151';
                 const circleStroke = selected ? '#ef4444' : 'transparent';
                 const circleStrokeWidth = selected ? Math.max(1.2, r * 0.85) : 0;
@@ -1868,6 +2025,7 @@ export default function TreeEditor(){
                 const leafLabelText = trimmedName || "Unnamed";
                 const displayLabelText = isCollapsedLeaf ? collapsedLabelText : leafLabelText;
                 const isSearchHit = nodeId !== undefined && searchSet.has(nodeId);
+                const isActiveSearchTarget = activeSearchNodeId !== null && nodeId === activeSearchNodeId;
                 const highlightPaddingX = 8;
                 const highlightPaddingY = 4;
                 const highlightBaselineY = 4;
@@ -1921,9 +2079,9 @@ export default function TreeEditor(){
                         width={highlightWidth}
                         height={highlightHeight}
                         rx={highlightHeight/3}
-                        fill="#fef08a"
-                        stroke="#f4c84a"
-                        strokeWidth={1}
+                        fill={isActiveSearchTarget ? "#fde047" : "#fef08a"}
+                        stroke={isActiveSearchTarget ? "#f59e0b" : "#f4c84a"}
+                        strokeWidth={isActiveSearchTarget ? 1.5 : 1}
                         pointerEvents="none"
                       />
                     )}
