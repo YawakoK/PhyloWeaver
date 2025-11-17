@@ -1739,7 +1739,7 @@ export default function TreeEditor(){
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900" onClick={()=>{ if(menu.visible) setMenu({...menu,visible:false}); if(searchPopoverOpen) setSearchPopoverOpen(false); }}>
-      <div className="sticky top-0 z-20 border-b border-white/30 bg-white/70 backdrop-blur">
+      <div className="border-b border-white/30 bg-white/70 backdrop-blur">
         <div className="w-full px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
