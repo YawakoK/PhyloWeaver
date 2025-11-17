@@ -1505,10 +1505,6 @@ export default function TreeEditor(){
                 }}
               />
             </div>
-            <label className="flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
-              <span>Italic tip labels</span>
-            </label>
             <div className="pt-3 border-t border-slate-200 space-y-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Show</span>
               <div className="space-y-3">
@@ -1689,6 +1685,10 @@ export default function TreeEditor(){
               <label className="text-slate-600">PNG scale (x)</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={pngScale} min={1} step={1} onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))} />
             </div>
+            <label className="col-span-2 flex items-center gap-2 text-slate-600">
+              <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
+              <span className="text-sm font-medium">Italic tip labels</span>
+            </label>
           </div>
         );
       default:
@@ -2029,8 +2029,9 @@ export default function TreeEditor(){
                 const highlightPaddingX = 8;
                 const highlightPaddingY = 4;
                 const highlightBaselineY = 4;
+                const shouldItalicize = italic && (isSimpleLeaf || isCollapsedLeaf);
                 const highlightable = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
-                const estimatedLabelWidth = highlightable ? measureLabelWidth(displayLabelText, leafLabelSize, italic && isSimpleLeaf) : 0;
+                const estimatedLabelWidth = highlightable ? measureLabelWidth(displayLabelText, leafLabelSize, shouldItalicize) : 0;
                 const highlightWidth = Math.max(estimatedLabelWidth + highlightPaddingX * 2, leafLabelSize * 2);
                 const highlightHeight = leafLabelSize + highlightPaddingY * 2;
                 const highlightX = textStartX - highlightPaddingX;
@@ -2038,7 +2039,7 @@ export default function TreeEditor(){
                 const labelClasses = [
                   "select-none",
                   highlightable ? "font-semibold" : "",
-                  italic && isSimpleLeaf ? "italic" : "",
+                  shouldItalicize ? "italic" : "",
                   isCollapsedLeaf ? "font-medium" : ""
                 ].filter(Boolean).join(" ");
                 const baseLeafFill = nodeColor || '#1f2937';
@@ -2092,7 +2093,7 @@ export default function TreeEditor(){
                         fontSize={leafLabelSize}
                         fill={labelFill}
                         className={labelClasses}
-                        style={italic ? { fontStyle: "italic" } : undefined}
+                        style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
                       </text>
@@ -2104,6 +2105,7 @@ export default function TreeEditor(){
                         fontSize={leafLabelSize}
                         fill={labelFill}
                         className={labelClasses}
+                        style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
                       </text>
