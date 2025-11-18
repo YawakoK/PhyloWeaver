@@ -7,6 +7,10 @@ It provides an intuitive interface for manipulating tree topology, adjusting lay
 
 https://yawak.jp/PhyloWeaver/
 
+## Data Privacy
+
+PhyloWeaver processes all data locally in your browser.  
+Your Newick files are **not uploaded**, **not stored**, and **never transmitted** to any server.
 
 ## Features
 
@@ -54,6 +58,5 @@ If you use PhyloWeaver in academic work, please cite:
 
 This project is licensed under the **MIT License**.
 See the [LICENSE](LICENSE) file for details.
-
 
 
