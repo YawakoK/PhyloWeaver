@@ -16,6 +16,7 @@ type TreeNode = {
   __edgeColor?: string;
   __edgeWidth?: number;
   __color?: string;
+  __nodeSize?: number;
   __collapsed?: boolean;
   __collapsedTipCount?: number;
   __isCollapsedPlaceholder?: boolean;
@@ -54,8 +55,9 @@ type LayoutSnapshot = {
 };
 
 const PANEL_CARD_CLASSES = "p-4 rounded-2xl border border-[#e4e4e4] bg-white/95 shadow-lg space-y-4";
-const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
-const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
+// const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
+const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
+const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
@@ -350,6 +352,7 @@ export default function TreeEditor(){
   const [leafLabelSize,setLeafLabelSize]=useState(25);
   const [nodeLabelSize,setNodeLabelSize]=useState(11);
   const [branchLabelSize,setBranchLabelSize]=useState(10);
+  const [branchLengthPrecision,setBranchLengthPrecision]=useState(3);
   const [supportLabelSize,setSupportLabelSize]=useState(10);
   const [branchLenOffsetX,setBranchLenOffsetX]=useState(0);
   const [branchLenOffsetY,setBranchLenOffsetY]=useState(-4);
@@ -373,6 +376,7 @@ export default function TreeEditor(){
   const [branchLengthInput,setBranchLengthInput]=useState("");
   const [branchWidthInput,setBranchWidthInput]=useState(()=>String(1.5));
   const [tipNameInput,setTipNameInput]=useState("");
+  const [nodeSizeInput,setNodeSizeInput]=useState("");
   const [useRegex,setUseRegex]=useState(false);
   const [regexError,setRegexError]=useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"data" | "selection" | "rendering" | "export">("data");
@@ -380,6 +384,7 @@ export default function TreeEditor(){
   const [paneDimensions, setPaneDimensions] = useState({ w: 1200, h: 600 });
   const [autoLayoutVersion, setAutoLayoutVersion] = useState(0);
   const textMeasureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
   const tipCountsById = useMemo<Map<number, number>>(()=>{
@@ -534,11 +539,10 @@ export default function TreeEditor(){
   },[leafLabelSize, yGap]);
 
   const computeAutoHorizontalScale = useCallback(()=>{
-    const { w: measuredWidth, h: measuredHeight } = refreshPaneDimensions();
+    const { w: measuredWidth } = refreshPaneDimensions();
     const paneEl = rightPaneRef.current;
     const paneWidthRaw = paneEl ? (paneEl.clientWidth || paneEl.getBoundingClientRect().width) : measuredWidth;
     const paneWidth = Number.isFinite(paneWidthRaw) && paneWidthRaw > 0 ? paneWidthRaw : 900;
-    const paneHeight = Number.isFinite(measuredHeight) && measuredHeight > 0 ? measuredHeight : paneDimensions.h;
     const usableCanvasWidth = Math.max(360, paneWidth - 48);
     const labelReserve = Math.max(140, longestLabelWidthPx + Math.max(12, leafLabelOffsetX) + 60);
     const branchSpace = Math.max(200, Math.floor(usableCanvasWidth - labelReserve));
@@ -561,21 +565,7 @@ export default function TreeEditor(){
     const leaves = Math.max(1, tipCount);
     let recommendedWidth = branchSpace;
     if(layout === "phylogram" && maxAccumLen > 1e-7){
-      const pxPerUnitFromPane = branchSpace / Math.max(1e-9, maxAccumLen);
-      const effectivePaneHeight = Math.max(360, Number.isFinite(paneHeight) && paneHeight > 0 ? paneHeight : 600);
-      const targetMinBranchPx = Math.min(1200, Math.max(220, Math.round(effectivePaneHeight * 1.1)));
-      const isTinyBranchScenario =
-        Number.isFinite(minPositiveLen) &&
-        minPositiveLen < Number.POSITIVE_INFINITY &&
-        minPositiveLen > 0 &&
-        (minPositiveLen / Math.max(maxAccumLen, 1e-9)) <= 0.05;
-      let pxPerUnit = pxPerUnitFromPane;
-      if(isTinyBranchScenario && minPositiveLen){
-        const detailPxPerUnitRaw = targetMinBranchPx / Math.max(minPositiveLen, 1e-9);
-        const maxDetailBoost = pxPerUnitFromPane * 60;
-        const detailPxPerUnit = maxDetailBoost > 0 ? Math.min(detailPxPerUnitRaw, maxDetailBoost) : detailPxPerUnitRaw;
-        pxPerUnit = Math.max(pxPerUnit, detailPxPerUnit);
-      }
+      const pxPerUnit = branchSpace / Math.max(1e-9, maxAccumLen);
       recommendedWidth = Math.round(Math.max(branchSpace, maxAccumLen * pxPerUnit));
     }else{
       const basePerDepth = Math.round(Math.max(80, branchSpace / Math.max(3, maxDepth)));
@@ -589,7 +579,7 @@ export default function TreeEditor(){
     recommendedWidth = Math.min(recommendedWidth, maxReadableWidth);
     recommendedWidth = Math.max(400, Math.min(80000, recommendedWidth));
     return Math.round(recommendedWidth);
-  },[refreshPaneDimensions, longestLabelWidthPx, leafLabelOffsetX, displayTree, layout, paneDimensions.h, tipCount, leafLabelSize]);
+  },[refreshPaneDimensions, longestLabelWidthPx, leafLabelOffsetX, displayTree, layout, tipCount, leafLabelSize]);
 
   useEffect(()=>{
     const recommended = computeAutoHorizontalScale();
@@ -690,7 +680,7 @@ export default function TreeEditor(){
     if(!Number.isFinite(totalLength) || totalLength <= 0) return null;
     const basePxPerUnit = xScaleWidth / Math.max(1e-9, totalLength);
     const pxPerUnit = basePxPerUnit * Math.max(zoomK || 1, 1e-6);
-    const scale = computeScaleBar(pxPerUnit, 32, 200);
+    const scale = computeScaleBar(pxPerUnit, 1, 200);
     if(!scale) return null;
     const label = formatScaleUnits(scale.units);
     if(!label) return null;
@@ -730,7 +720,16 @@ export default function TreeEditor(){
     }else{
       setTipNameInput("");
     }
-  },[selectedBranchNode, edgeWidth]);
+    if(selection?.type==='node' && selectedBranchNode){
+      const overrideSize =
+        typeof selectedBranchNode.__nodeSize === "number" && Number.isFinite(selectedBranchNode.__nodeSize)
+          ? selectedBranchNode.__nodeSize
+          : null;
+      setNodeSizeInput(overrideSize !== null ? String(overrideSize) : "");
+    }else{
+      setNodeSizeInput("");
+    }
+  },[selectedBranchNode, edgeWidth, selection]);
 
   const activeSelectionColor = useMemo(()=>{
     if(!selection || !selectedBranchNode) return null;
@@ -852,6 +851,42 @@ export default function TreeEditor(){
       return next;
     });
   },[fitToViewport]);
+
+  const handleBranchLengthInputChange = useCallback((rawValue: string)=>{
+    setBranchLengthInput(rawValue);
+    const trimmed = rawValue.trim();
+    if(!trimmed) return;
+    const numeric = parseFloat(trimmed);
+    if(Number.isNaN(numeric) || numeric < 0) return;
+    actionEditLength(String(numeric), { keepMenu:true });
+  },[actionEditLength]);
+
+  const handleBranchWidthInputChange = useCallback((rawValue: string)=>{
+    setBranchWidthInput(rawValue);
+    const trimmed = rawValue.trim();
+    if(!trimmed){
+      actionEditBranchWidth("", { keepMenu:true });
+      return;
+    }
+    const numeric = parseFloat(trimmed);
+    if(Number.isNaN(numeric) || numeric <= 0) return;
+    actionEditBranchWidth(String(numeric), { keepMenu:true });
+  },[actionEditBranchWidth]);
+
+  const handleNodeSizeInputChange = useCallback((rawValue: string)=>{
+    setNodeSizeInput(rawValue);
+    if(selection?.type!=='node'){
+      return;
+    }
+    const trimmed = rawValue.trim();
+    if(!trimmed){
+      actionEditNodeSize(null, { keepMenu:true });
+      return;
+    }
+    const numeric = parseFloat(trimmed);
+    if(Number.isNaN(numeric) || numeric < 0) return;
+    actionEditNodeSize(numeric, { keepMenu:true });
+  },[selection, actionEditNodeSize]);
 
   const focusOnPoint = useCallback((targetX: number, targetY: number, options?: { scale?: number; preserveScale?: boolean })=>{
     const svgNode = svgRef.current;
@@ -1216,6 +1251,24 @@ export default function TreeEditor(){
       setMenu({...menu,visible:false});
     }
   }
+  function actionEditNodeSize(value: number | null, opts?: { keepMenu?: boolean }){
+    if(selection?.type!=='node') return;
+    const id=selection.id;
+    const target=findById(tree,id);
+    if(!target) return;
+    if(value === null){
+      delete target.__nodeSize;
+      setNodeSizeInput("");
+    }else{
+      const clamped=Math.max(0, Math.min(40, value));
+      target.__nodeSize=clamped;
+      setNodeSizeInput(String(clamped));
+    }
+    commitTree(clone(tree), { preserveZoom: true });
+    if(!opts?.keepMenu){
+      setMenu({...menu,visible:false});
+    }
+  }
   function actionColorSelected(c: string){
     if(!selection) return;
     const id=selection.type==='node'?selection.id:selection.childId;
@@ -1226,7 +1279,7 @@ export default function TreeEditor(){
 
 
   // ---------- Export helpers (render scale bar into standalone SVG) ----------
-  function computeScaleBar(pxPerUnit: number, minPx = 24, maxPx = 240){
+  function computeScaleBar(pxPerUnit: number, minPx = 1, maxPx = 240){
     if(!Number.isFinite(pxPerUnit) || pxPerUnit <= 0) return null;
     const targetPx=100;
     const rawUnits=targetPx/Math.max(1e-9,pxPerUnit);
@@ -1289,7 +1342,7 @@ export default function TreeEditor(){
     // Vector scale bar overlay
     if(layout==='phylogram' && Number.isFinite(totalLength) && totalLength>0){
       const pxPerUnit = (xScaleWidth / Math.max(1e-9,totalLength));
-      const scale = computeScaleBar(pxPerUnit, 32, 220);
+    const scale = computeScaleBar(pxPerUnit, 1, 220);
       if(scale){
         const sbG = document.createElementNS("http://www.w3.org/2000/svg","g");
         const sbX = bbox.x - pad + 16, sbY = bbox.y - pad + 18;
@@ -1456,12 +1509,54 @@ export default function TreeEditor(){
               </div>
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Length</span>
-                <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={branchLengthInput} onChange={(e)=>setBranchLengthInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionEditLength(e.currentTarget.value); }} />
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className={`${INPUT_CLASSES} w-full`}
+                  placeholder="Enter & hit ↵"
+                  value={branchLengthInput}
+                  onChange={(e)=>handleBranchLengthInputChange(e.currentTarget.value)}
+                  onKeyDown={(e)=>{ if(e.key==='Enter') actionEditLength(e.currentTarget.value); }}
+                />
               </div>
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
-                <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={branchWidthInput} onChange={(e)=>setBranchWidthInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionEditBranchWidth(e.currentTarget.value); }} />
+                <input
+                  type="number"
+                  min={0}
+                  step={0.25}
+                  className={`${INPUT_CLASSES} w-full`}
+                  placeholder="Enter & hit ↵"
+                  value={branchWidthInput}
+                  onChange={(e)=>handleBranchWidthInputChange(e.currentTarget.value)}
+                  onKeyDown={(e)=>{ if(e.key==='Enter') actionEditBranchWidth(e.currentTarget.value); }}
+                />
               </div>
+              {selection?.type==='node' && (
+                <div className="col-span-2 space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    className={`${INPUT_CLASSES} w-full`}
+                    placeholder="Default"
+                    value={nodeSizeInput}
+                    onChange={(e)=>handleNodeSizeInputChange(e.currentTarget.value)}
+                    onKeyDown={(e)=>{
+                      if(e.key==='Enter'){
+                        const parsed=parseFloat(e.currentTarget.value);
+                        if(Number.isNaN(parsed)){
+                          actionEditNodeSize(null);
+                        }else{
+                          actionEditNodeSize(parsed);
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              )}
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Name</span>
                 <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionRenameTip(e.currentTarget.value); }} />
@@ -1621,6 +1716,21 @@ export default function TreeEditor(){
                             }}
                           />
                         </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Decimals</span>
+                        <input
+                          type="number"
+                          className={`${INPUT_CLASSES} w-20`}
+                          value={branchLengthPrecision}
+                          min={0}
+                          max={6}
+                          step={1}
+                          onChange={(e)=>{
+                            const next=parseFloat(e.target.value);
+                            setBranchLengthPrecision(Number.isFinite(next)?next:3);
+                          }}
+                        />
                       </div>
                     </div>
                   )}
@@ -1873,7 +1983,7 @@ export default function TreeEditor(){
             </button>
             <button
               type="button"
-              className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-300"
+              className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
               onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
               aria-label="Search leaves"
             >
@@ -1956,9 +2066,9 @@ export default function TreeEditor(){
                 const childData = (target.d?.data ?? {}) as TreeNode;
                 const parentId = parentData.__id;
                 const childId = childData.__id;
-                const parentSelected = parentId !== undefined && selection?.type==='node' && selection?.id===parentId;
+                const childSelected = childId !== undefined && selection?.type==='node' && selection?.id===childId;
                 const isSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
-                const highlightActive = parentSelected || isSelected;
+                const highlightActive = childSelected || isSelected;
                 const customColor = childData.__edgeColor;
                 const customWidth = typeof childData.__edgeWidth === 'number' && Number.isFinite(childData.__edgeWidth) ? childData.__edgeWidth : null;
                 const highlightColor = '#f0a608ff';
@@ -2029,7 +2139,7 @@ export default function TreeEditor(){
                       data-base-width={baseWidth}
                     />
                     {layout==='phylogram' && showBranchLen && (
-                      <text x={midX + branchLenOffsetX} y={target.y + branchLenOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-600 select-none">{branchLenValue.toFixed(3)}</text>
+                      <text x={midX + branchLenOffsetX} y={target.y + branchLenOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-600 select-none">{branchLenValue.toFixed(branchLengthPrecisionSafe)}</text>
                     )}
                     {showBootstrap && typeof supportValue === 'string' && supportValue.trim() && !Number.isNaN(parseFloat(supportValue)) && (
                       <text x={midX + bootstrapOffsetX} y={target.y + bootstrapOffsetY} fontSize={supportLabelSize} textAnchor="middle" className="fill-slate-500 select-none">{supportValue}</text>
@@ -2047,10 +2157,14 @@ export default function TreeEditor(){
                 const isCollapsedLeaf = Boolean(isDisplayLeaf && n.d.data.__isCollapsedPlaceholder);
                 const isSimpleLeaf = isDisplayLeaf && !isCollapsedLeaf;
                 const nodeColor = n.d.data.__color;
-                const r=isDisplayLeaf ? Math.max(0, leafNodeDotSize) : Math.max(0, internalNodeDotSize);
-                const baseCircleFill = isDisplayLeaf ? (nodeColor || '#111827') : '#374151';
-                const circleStroke = selected ? '#ef4444' : 'transparent';
-                const circleStrokeWidth = selected ? Math.max(1.2, r * 0.85) : 0;
+                const defaultRadius = isDisplayLeaf ? Math.max(0, leafNodeDotSize) : Math.max(0, internalNodeDotSize);
+                const customRadius = typeof n.d.data.__nodeSize === "number" && Number.isFinite(n.d.data.__nodeSize)
+                  ? Math.max(0, n.d.data.__nodeSize as number)
+                  : null;
+                const r = customRadius ?? defaultRadius;
+                const baseCircleFill = nodeColor || (isDisplayLeaf ? '#111827' : '#374151');
+                const circleStrokeColor = selected ? '#f0a608ff' : 'transparent';
+                const circleStrokeWidth = selected ? Math.max(1.2, r * 0.75) : 0;
                 const collapsedMetrics = isCollapsedLeaf ? getCollapsedTriangleMetrics(collapsedTipCount) : null;
                 const collapsedWidth = collapsedMetrics?.width ?? 0;
                 const textStartX = collapsedWidth + labelPadding;
@@ -2093,7 +2207,7 @@ export default function TreeEditor(){
                       <circle
                         r={r}
                         fill={baseCircleFill}
-                        stroke={circleStroke}
+                        stroke={circleStrokeColor}
                         strokeWidth={circleStrokeWidth}
                         data-base-fill={baseCircleFill}
                       />
@@ -2198,83 +2312,53 @@ export default function TreeEditor(){
                   Expand
                 </button>
                 <div className="col-span-2 space-y-2">
-                  <span className="text-sm font-medium text-slate-700">Edge / label color</span>
+                  <span className="text-sm font-medium text-slate-700">
+                    {selection?.type==='node' ? "Node color" : "Edge color"}
+                  </span>
                   <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} />
                 </div>
+                {selection?.type==='node' && (
+                  <div className="col-span-2 space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                    <input
+                      type="number"
+                      className={`${INPUT_CLASSES} w-full`}
+                      min={0}
+                      step={0.5}
+                      placeholder="Default"
+                      value={nodeSizeInput}
+                      onChange={(e)=>handleNodeSizeInputChange(e.currentTarget.value)}
+                    />
+                  </div>
+                )}
                 <div className="col-span-2 space-y-1">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Length</span>
                   <div className="flex items-stretch gap-2">
-                    <div className="relative flex-1 group">
-                      <input
-                        className={`${INPUT_CLASSES} w-full pr-8`}
-                        placeholder="Enter & hit ↵"
-                        value={branchLengthInput}
-                        onChange={(e)=>setBranchLengthInput(e.currentTarget.value)}
-                        onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditLength(e.currentTarget.value); } }}
-                      />
-                      <div className="absolute right-1 top-1 bottom-1 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity text-[0.55rem]" role="group" aria-label="Length nudger">
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchLengthInput);
-                            const fallback=selection?findById(tree, selection.type==='link'?selection.childId:selection.id)?.length ?? 0:0;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditLength(String(Math.max(0, base + 0.1)), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Increase length"
-                        >▲</button>
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchLengthInput);
-                            const fallback=selection?findById(tree, selection.type==='link'?selection.childId:selection.id)?.length ?? 0:0;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditLength(String(Math.max(0, base - 0.1)), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Decrease length"
-                        >▼</button>
-                      </div>
-                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className={`${INPUT_CLASSES} flex-1`}
+                      placeholder="Enter & hit ↵"
+                      value={branchLengthInput}
+                      onChange={(e)=>handleBranchLengthInputChange(e.currentTarget.value)}
+                      onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditLength(e.currentTarget.value); } }}
+                    />
                   </div>
                 </div>
                 <div className="col-span-2 space-y-1">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
                   <div className="flex items-stretch gap-2">
-                    <div className="relative flex-1 group">
-                      <input
-                        className={`${INPUT_CLASSES} w-full pr-8`}
-                        placeholder="Enter & hit ↵"
-                        value={branchWidthInput}
-                        onChange={(e)=>setBranchWidthInput(e.currentTarget.value)}
-                        onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditBranchWidth(e.currentTarget.value); } }}
-                      />
-                      <div className="absolute right-1 top-1 bottom-1 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity text-[0.55rem]" role="group" aria-label="Width nudger">
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchWidthInput);
-                            const fallback=selection?(findById(tree, selection.type==='link'?selection.childId:selection.id)?.__edgeWidth ?? edgeWidth):edgeWidth;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditBranchWidth(String(base + 0.25), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Increase width"
-                        >▲</button>
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchWidthInput);
-                            const fallback=selection?(findById(tree, selection.type==='link'?selection.childId:selection.id)?.__edgeWidth ?? edgeWidth):edgeWidth;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditBranchWidth(String(Math.max(0.25, base - 0.25)), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Decrease width"
-                        >▼</button>
-                      </div>
-                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.25}
+                      className={`${INPUT_CLASSES} flex-1`}
+                      placeholder="Enter & hit ↵"
+                      value={branchWidthInput}
+                      onChange={(e)=>handleBranchWidthInputChange(e.currentTarget.value)}
+                      onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditBranchWidth(e.currentTarget.value); } }}
+                    />
                   </div>
                 </div>
                 <div className="col-span-2 space-y-1">
