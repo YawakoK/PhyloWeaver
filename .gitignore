@@ -26,3 +26,5 @@ dist-ssr
 *.code-workspace
 */*.code-workspace
 src/backup
+src/assets/icons/Thumbs.db
+@eaDir/

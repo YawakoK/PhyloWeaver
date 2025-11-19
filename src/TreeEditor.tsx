@@ -54,12 +54,13 @@ type LayoutSnapshot = {
 };
 
 const PANEL_CARD_CLASSES = "p-4 rounded-2xl border border-[#e4e4e4] bg-white/95 shadow-lg space-y-4";
-const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#e3a827] text-white text-base font-bold  transition-all duration-200 hover:bg-[#e3a827] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#e3a827]";
-const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#e3a827] text-white text-base font-bold  transition-all duration-200 hover:bg-[#e3a827] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#e3a827]";
+const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
+const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
+const READABLE_FIT_SCALE = 0.85;
 
 type ColorSelectorProps = {
   selectedColor?: string | null;
@@ -346,7 +347,7 @@ export default function TreeEditor(){
   const historyInitRef = useRef(false);
   const [layout,setLayout]=useState<LayoutMode>("phylogram");
   const [edgeWidth,setEdgeWidth]=useState(1.5);
-  const [leafLabelSize,setLeafLabelSize]=useState(15);
+  const [leafLabelSize,setLeafLabelSize]=useState(25);
   const [nodeLabelSize,setNodeLabelSize]=useState(11);
   const [branchLabelSize,setBranchLabelSize]=useState(10);
   const [supportLabelSize,setSupportLabelSize]=useState(10);
@@ -356,7 +357,8 @@ export default function TreeEditor(){
   const [bootstrapOffsetY,setBootstrapOffsetY]=useState(-18);
   const [nodeLabelOffsetX,setNodeLabelOffsetX]=useState(-4);
   const [nodeLabelOffsetY,setNodeLabelOffsetY]=useState(-6);
-  const [xOffset,setXOffset]=useState(5);
+  const [leafLabelOffsetX,setLeafLabelOffsetX]=useState(5);
+  const [leafLabelOffsetY,setLeafLabelOffsetY]=useState(0);
   const [yGap,setYGap]=useState(50);
   const [italic,setItalic]=useState(false);
   const [showNodeLabels,setShowNodeLabels]=useState(false);
@@ -538,7 +540,7 @@ export default function TreeEditor(){
     const paneWidth = Number.isFinite(paneWidthRaw) && paneWidthRaw > 0 ? paneWidthRaw : 900;
     const paneHeight = Number.isFinite(measuredHeight) && measuredHeight > 0 ? measuredHeight : paneDimensions.h;
     const usableCanvasWidth = Math.max(360, paneWidth - 48);
-    const labelReserve = Math.max(140, longestLabelWidthPx + Math.max(12, xOffset) + 60);
+    const labelReserve = Math.max(140, longestLabelWidthPx + Math.max(12, leafLabelOffsetX) + 60);
     const branchSpace = Math.max(200, Math.floor(usableCanvasWidth - labelReserve));
 
     const root = d3.hierarchy<TreeNode>(displayTree);
@@ -556,6 +558,7 @@ export default function TreeEditor(){
     })(root, 0);
 
     const maxDepth = d3.max(root.descendants().map(d=>d.depth)) ?? 1;
+    const leaves = Math.max(1, tipCount);
     let recommendedWidth = branchSpace;
     if(layout === "phylogram" && maxAccumLen > 1e-7){
       const pxPerUnitFromPane = branchSpace / Math.max(1e-9, maxAccumLen);
@@ -578,9 +581,15 @@ export default function TreeEditor(){
       const basePerDepth = Math.round(Math.max(80, branchSpace / Math.max(3, maxDepth)));
       recommendedWidth = Math.max(branchSpace, basePerDepth * Math.max(1, maxDepth));
     }
+    const complexityBoost = branchSpace * (1 + Math.log10(leaves + 1) * 0.35);
+    const perDepthComfort = Math.max(branchSpace, Math.max(140, leafLabelSize * 5.5) * Math.max(1, maxDepth));
+    recommendedWidth = Math.max(recommendedWidth, complexityBoost, perDepthComfort);
+    const maxReadableWidthRaw = Math.floor((usableCanvasWidth / READABLE_FIT_SCALE) - labelReserve);
+    const maxReadableWidth = Math.max(branchSpace, Math.min(80000, maxReadableWidthRaw));
+    recommendedWidth = Math.min(recommendedWidth, maxReadableWidth);
     recommendedWidth = Math.max(400, Math.min(80000, recommendedWidth));
     return Math.round(recommendedWidth);
-  },[refreshPaneDimensions, longestLabelWidthPx, xOffset, displayTree, layout, paneDimensions.h]);
+  },[refreshPaneDimensions, longestLabelWidthPx, leafLabelOffsetX, displayTree, layout, paneDimensions.h, tipCount, leafLabelSize]);
 
   useEffect(()=>{
     const recommended = computeAutoHorizontalScale();
@@ -644,7 +653,7 @@ export default function TreeEditor(){
       data:l
     }));
 
-    const labelPad = Math.max(4, xOffset);
+    const labelPad = Math.max(4, leafLabelOffsetX);
     const xs=nodes.map(n=>n.x), ys=nodes.map(n=>n.y);
     const labelAdjustedMax = nodes.reduce((max, n)=>{
       if(n.d.children?.length) return Math.max(max, n.x);
@@ -660,7 +669,7 @@ export default function TreeEditor(){
     const xExtent:[number,number]=[Math.min(...xs,0), Math.max(labelAdjustedMax,0)];
     const yExtent:[number,number]=[Math.min(...ys,0), Math.max(...ys,0)];
     return { nodes, links, totalLength: Math.max(1,xMax), xExtent, yExtent };
-  },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, xOffset, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
+  },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, leafLabelOffsetX, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
 
   /** ---------- ScaleBar: HTML overlay (onscreen) ---------- */
   function formatScaleUnits(value: number){
@@ -792,13 +801,21 @@ export default function TreeEditor(){
 
   // Observe right pane size (used for manual resets)
 
+  const labelPadding = Math.max(4, leafLabelOffsetX);
+  const svgHeight = useMemo(()=>{
+    const tipDriven = Math.max(800, Math.round(yGap * (tipCount + 4)));
+    const paneDriven = Math.max(520, Math.round(paneDimensions.h * 1.25));
+    return Math.max(tipDriven, paneDriven);
+  },[paneDimensions.h, tipCount, yGap]);
+
   // Auto-fit on first render and when core layout knobs change
   const fitToViewport = useCallback(()=>{
     const svgNode=svgRef.current; if(!svgNode||!zoomRef.current) return;
     const pad=60;
     const size = paneSizeRef.current;
     const svgW=svgNode.clientWidth||size.w;
-    const svgH=svgNode.clientHeight||size.h;
+    const rawSvgH=svgNode.clientHeight||size.h;
+    const svgH=Math.max(rawSvgH, svgHeight);
     const minx=Math.min(xExtent[0],0), maxx=Math.max(xExtent[1],0);
     const miny=Math.min(yExtent[0],0), maxy=Math.max(yExtent[1],0);
     const gw=Math.max(1,maxx-minx), gh=Math.max(1,maxy-miny);
@@ -815,7 +832,7 @@ export default function TreeEditor(){
       .duration(250)
       .call(zoomRef.current.transform, d3.zoomIdentity.translate(x,y).scale(k));
     userAdjustedZoomRef.current = false;
-  },[xExtent, yExtent, baseTranslateX, baseTranslateY, treeViewYOffset]);
+  },[xExtent, yExtent, baseTranslateX, baseTranslateY, treeViewYOffset, svgHeight]);
 
   const didFirstFitRef = useRef(false);
 
@@ -876,9 +893,12 @@ export default function TreeEditor(){
   const computeAutoVerticalSpacing = useCallback(()=>{
     const paneHeight = Math.max(200, paneDimensions.h - 160);
     const leaves = Math.max(1, tipCount);
-    const spacing = Math.max(16, Math.min(140, Math.floor(paneHeight / Math.max(1, leaves))));
-    return spacing;
-  },[paneDimensions.h, tipCount]);
+    const baseSpacing = Math.max(16, Math.min(140, Math.floor(paneHeight / Math.max(1, leaves))));
+    const comfortableBase = Math.max(leafLabelSize * 1.8, 26);
+    const comfortSpacing = Math.min(200, comfortableBase * (1 + Math.log10(leaves + 1) * 0.45));
+    const spacing = Math.min(200, Math.max(baseSpacing, comfortSpacing));
+    return Math.round(spacing);
+  },[paneDimensions.h, tipCount, leafLabelSize]);
 
   const autoAdjustVerticalSpacing = useCallback(()=>{
     const spacing = computeAutoVerticalSpacing();
@@ -1293,7 +1313,13 @@ export default function TreeEditor(){
 
   // ---------- Downloads ----------
   function downloadNewick(){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([toNewick(tree)],{type:'text/plain'})); a.download='edited_tree.nwk'; a.click(); }
-  function downloadTipList(){ const tips=collectTips(tree).map(t=>t.name||'Unnamed').join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([tips],{type:'text/plain'})); a.download='tips.txt'; a.click(); }
+  function downloadLeafList(){
+    const leaves=collectTips(tree).map(t=>t.name||'Unnamed').join('\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([leaves],{type:'text/plain'}));
+    a.download='leaves.txt';
+    a.click();
+  }
   async function downloadSVG(){ const blob=buildStandaloneSVGBlobWithScaleBar(); if(!blob) return; const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tree.svg'; a.click(); }
   async function downloadPNG(){
     const svgBlob=buildStandaloneSVGBlobWithScaleBar(); if(!svgBlob) return;
@@ -1364,12 +1390,6 @@ export default function TreeEditor(){
   }
 
   const selInfo = (()=>{ if(!selection) return 'None'; if(selection.type==='node'){ const t=findById(tree,selection.id); return t?.name||'[node]'; } const t=findById(tree,selection.childId); return t?.name||'[branch]'; })();
-  const labelPadding = Math.max(4, xOffset);
-  const svgHeight = useMemo(()=>{
-    const layoutDriven = Math.max(560, yGap * (tipCount + 2));
-    const paneDriven = Math.max(420, paneDimensions.h);
-    return Math.max(layoutDriven, paneDriven);
-  },[paneDimensions.h, tipCount, yGap]);
   const tabs: { id: typeof activeTab; label: string }[] = [
     { id: "data", label: "Data" },
     { id: "selection", label: "Selection" },
@@ -1477,15 +1497,30 @@ export default function TreeEditor(){
             <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Leaf label size</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={leafLabelSize} onChange={(e)=>setLeafLabelSize(parseFloat(e.target.value)||15)} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Tip X offset</label>
-              <input
-                type="number"
-                className={`${INPUT_CLASSES} w-24`}
-                value={xOffset}
-                min={0}
-                step={2}
-                onChange={(e)=>setXOffset(Math.max(0, parseFloat(e.target.value)||0))}
-              />
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-slate-600">Leaf offset</label>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">X</span>
+                <input
+                  type="number"
+                  className={`${INPUT_CLASSES} w-20`}
+                  value={leafLabelOffsetX}
+                  min={0}
+                  step={2}
+                  onChange={(e)=>setLeafLabelOffsetX(Math.max(0, parseFloat(e.target.value)||0))}
+                />
+                <span className="text-xs text-slate-500">Y</span>
+                <input
+                  type="number"
+                  className={`${INPUT_CLASSES} w-20`}
+                  value={leafLabelOffsetY}
+                  step={1}
+                  onChange={(e)=>{
+                    const parsed = parseFloat(e.target.value);
+                    setLeafLabelOffsetY(Number.isFinite(parsed) ? parsed : 0);
+                  }}
+                />
+              </div>
             </div>
             <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Vertical spacing</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={yGap} onChange={(e)=>handleManualYGapChange(parseFloat(e.target.value))} />
@@ -1677,7 +1712,7 @@ export default function TreeEditor(){
         return (
           <div className="grid grid-cols-2 gap-2 mt-2 text-[0.95rem]">
             <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
-            <button className={BUTTON_CLASSES} onClick={downloadTipList}>Tip list</button>
+            <button className={BUTTON_CLASSES} onClick={downloadLeafList}>Leaf list</button>
             <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
             <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
             <button className={`${BUTTON_CLASSES} col-span-2`} onClick={downloadPDF}>PDF (vector)</button>
@@ -1770,7 +1805,7 @@ export default function TreeEditor(){
                   className={[
                     "px-4 py-2 rounded-xl text-sm font-semibold shadow-md border transition-all duration-150",
                     activeTab===tab.id
-                      ? "bg-[#286699] text-white border-[#1d4f7c] shadow-lg"
+                      ? "bg-[#3874a6] text-white border-[#3874a6] shadow-lg"
                       : "bg-[#e4e4e4] text-[#286699] border border-transparent hover:border-[#286699]"
                   ].join(" ")}
                 >
@@ -1789,7 +1824,7 @@ export default function TreeEditor(){
           ref={rightPaneRef}
           className="flex-1 min-w-[640px] p-4 bg-white rounded-3xl shadow-lg border border-slate-100/80 overflow-auto relative"
           onClick={handleCanvasBackgroundClick}
-          style={{ height:"calc(85vh)" }}
+          style={{ minHeight:"calc(90vh)", height:"calc(95vh)" }}
         >
           <div className="absolute right-4 top-4 z-30 flex flex-wrap items-end justify-end gap-6">
             <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
@@ -1840,7 +1875,7 @@ export default function TreeEditor(){
               type="button"
               className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-300"
               onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
-              aria-label="Search tips"
+              aria-label="Search leaves"
             >
               <IconSearch />
             </button>
@@ -1861,13 +1896,13 @@ export default function TreeEditor(){
           {searchPopoverOpen && (
             <div className="absolute right-4 top-28 z-30 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
               <div className="flex items-center justify-between mb-3">
-                <span className="font-semibold">Search tips</span>
+                <span className="font-semibold">Search leaves</span>
                 <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>Close</button>
               </div>
               <div className="space-y-3">
                 <input
                   className={`${INPUT_CLASSES} w-full`}
-                  placeholder={useRegex?"Enter regex pattern":"Tip name contains..."}
+                  placeholder={useRegex?"Enter regex pattern":"Leaf name contains..."}
                   value={search}
                   onChange={(e)=>setSearch(e.target.value)}
                 />
@@ -2028,14 +2063,14 @@ export default function TreeEditor(){
                 const isActiveSearchTarget = activeSearchNodeId !== null && nodeId === activeSearchNodeId;
                 const highlightPaddingX = 8;
                 const highlightPaddingY = 4;
-                const highlightBaselineY = 4;
+                const labelBaselineY = leafLabelOffsetY;
                 const shouldItalicize = italic && (isSimpleLeaf || isCollapsedLeaf);
                 const highlightable = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
                 const estimatedLabelWidth = highlightable ? measureLabelWidth(displayLabelText, leafLabelSize, shouldItalicize) : 0;
                 const highlightWidth = Math.max(estimatedLabelWidth + highlightPaddingX * 2, leafLabelSize * 2);
                 const highlightHeight = leafLabelSize + highlightPaddingY * 2;
                 const highlightX = textStartX - highlightPaddingX;
-                const highlightY = highlightBaselineY - leafLabelSize - highlightPaddingY;
+                const highlightY = labelBaselineY - highlightHeight / 2;
                 const labelClasses = [
                   "select-none",
                   highlightable ? "font-semibold" : "",
@@ -2052,7 +2087,7 @@ export default function TreeEditor(){
                 return (
                   <g key={i} transform={`translate(${n.x},${n.y})`} className="cursor-pointer" onClick={(e)=>onClickNode(n,e)}>
                     {isCollapsedLeaf && (
-                      <title>{`Collapsed subtree (${collapsedTipCount ?? 0} tip${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
+                      <title>{`Collapsed subtree (${collapsedTipCount ?? 0} leaf${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
                     )}
                     {showNodeDots && (
                       <circle
@@ -2089,10 +2124,12 @@ export default function TreeEditor(){
                     {isSimpleLeaf && (
                       <text
                         x={textStartX}
-                        y={highlightBaselineY}
+                        y={labelBaselineY}
                         fontSize={leafLabelSize}
                         fill={labelFill}
                         className={labelClasses}
+                        dominantBaseline="middle"
+                        alignmentBaseline="middle"
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -2101,10 +2138,12 @@ export default function TreeEditor(){
                     {isCollapsedLeaf && (
                       <text
                         x={textStartX}
-                        y={highlightBaselineY}
+                        y={labelBaselineY}
                         fontSize={leafLabelSize}
                         fill={labelFill}
                         className={labelClasses}
+                        dominantBaseline="middle"
+                        alignmentBaseline="middle"
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
