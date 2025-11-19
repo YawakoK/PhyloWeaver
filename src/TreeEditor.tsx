@@ -16,6 +16,7 @@ type TreeNode = {
   __edgeColor?: string;
   __edgeWidth?: number;
   __color?: string;
+  __nodeSize?: number;
   __collapsed?: boolean;
   __collapsedTipCount?: number;
   __isCollapsedPlaceholder?: boolean;
@@ -54,12 +55,14 @@ type LayoutSnapshot = {
 };
 
 const PANEL_CARD_CLASSES = "p-4 rounded-2xl border border-[#e4e4e4] bg-white/95 shadow-lg space-y-4";
-const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#e3a827] text-white text-base font-bold  transition-all duration-200 hover:bg-[#e3a827] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#e3a827]";
-const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#e3a827] text-white text-base font-bold  transition-all duration-200 hover:bg-[#e3a827] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#e3a827]";
+// const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
+const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
+const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
+const READABLE_FIT_SCALE = 0.85;
 
 type ColorSelectorProps = {
   selectedColor?: string | null;
@@ -346,9 +349,10 @@ export default function TreeEditor(){
   const historyInitRef = useRef(false);
   const [layout,setLayout]=useState<LayoutMode>("phylogram");
   const [edgeWidth,setEdgeWidth]=useState(1.5);
-  const [leafLabelSize,setLeafLabelSize]=useState(15);
+  const [leafLabelSize,setLeafLabelSize]=useState(25);
   const [nodeLabelSize,setNodeLabelSize]=useState(11);
   const [branchLabelSize,setBranchLabelSize]=useState(10);
+  const [branchLengthPrecision,setBranchLengthPrecision]=useState(3);
   const [supportLabelSize,setSupportLabelSize]=useState(10);
   const [branchLenOffsetX,setBranchLenOffsetX]=useState(0);
   const [branchLenOffsetY,setBranchLenOffsetY]=useState(-4);
@@ -356,7 +360,8 @@ export default function TreeEditor(){
   const [bootstrapOffsetY,setBootstrapOffsetY]=useState(-18);
   const [nodeLabelOffsetX,setNodeLabelOffsetX]=useState(-4);
   const [nodeLabelOffsetY,setNodeLabelOffsetY]=useState(-6);
-  const [xOffset,setXOffset]=useState(5);
+  const [leafLabelOffsetX,setLeafLabelOffsetX]=useState(5);
+  const [leafLabelOffsetY,setLeafLabelOffsetY]=useState(0);
   const [yGap,setYGap]=useState(50);
   const [italic,setItalic]=useState(false);
   const [showNodeLabels,setShowNodeLabels]=useState(false);
@@ -371,6 +376,7 @@ export default function TreeEditor(){
   const [branchLengthInput,setBranchLengthInput]=useState("");
   const [branchWidthInput,setBranchWidthInput]=useState(()=>String(1.5));
   const [tipNameInput,setTipNameInput]=useState("");
+  const [nodeSizeInput,setNodeSizeInput]=useState("");
   const [useRegex,setUseRegex]=useState(false);
   const [regexError,setRegexError]=useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"data" | "selection" | "rendering" | "export">("data");
@@ -378,6 +384,7 @@ export default function TreeEditor(){
   const [paneDimensions, setPaneDimensions] = useState({ w: 1200, h: 600 });
   const [autoLayoutVersion, setAutoLayoutVersion] = useState(0);
   const textMeasureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
   const tipCountsById = useMemo<Map<number, number>>(()=>{
@@ -532,13 +539,12 @@ export default function TreeEditor(){
   },[leafLabelSize, yGap]);
 
   const computeAutoHorizontalScale = useCallback(()=>{
-    const { w: measuredWidth, h: measuredHeight } = refreshPaneDimensions();
+    const { w: measuredWidth } = refreshPaneDimensions();
     const paneEl = rightPaneRef.current;
     const paneWidthRaw = paneEl ? (paneEl.clientWidth || paneEl.getBoundingClientRect().width) : measuredWidth;
     const paneWidth = Number.isFinite(paneWidthRaw) && paneWidthRaw > 0 ? paneWidthRaw : 900;
-    const paneHeight = Number.isFinite(measuredHeight) && measuredHeight > 0 ? measuredHeight : paneDimensions.h;
     const usableCanvasWidth = Math.max(360, paneWidth - 48);
-    const labelReserve = Math.max(140, longestLabelWidthPx + Math.max(12, xOffset) + 60);
+    const labelReserve = Math.max(140, longestLabelWidthPx + Math.max(12, leafLabelOffsetX) + 60);
     const branchSpace = Math.max(200, Math.floor(usableCanvasWidth - labelReserve));
 
     const root = d3.hierarchy<TreeNode>(displayTree);
@@ -556,31 +562,24 @@ export default function TreeEditor(){
     })(root, 0);
 
     const maxDepth = d3.max(root.descendants().map(d=>d.depth)) ?? 1;
+    const leaves = Math.max(1, tipCount);
     let recommendedWidth = branchSpace;
     if(layout === "phylogram" && maxAccumLen > 1e-7){
-      const pxPerUnitFromPane = branchSpace / Math.max(1e-9, maxAccumLen);
-      const effectivePaneHeight = Math.max(360, Number.isFinite(paneHeight) && paneHeight > 0 ? paneHeight : 600);
-      const targetMinBranchPx = Math.min(1200, Math.max(220, Math.round(effectivePaneHeight * 1.1)));
-      const isTinyBranchScenario =
-        Number.isFinite(minPositiveLen) &&
-        minPositiveLen < Number.POSITIVE_INFINITY &&
-        minPositiveLen > 0 &&
-        (minPositiveLen / Math.max(maxAccumLen, 1e-9)) <= 0.05;
-      let pxPerUnit = pxPerUnitFromPane;
-      if(isTinyBranchScenario && minPositiveLen){
-        const detailPxPerUnitRaw = targetMinBranchPx / Math.max(minPositiveLen, 1e-9);
-        const maxDetailBoost = pxPerUnitFromPane * 60;
-        const detailPxPerUnit = maxDetailBoost > 0 ? Math.min(detailPxPerUnitRaw, maxDetailBoost) : detailPxPerUnitRaw;
-        pxPerUnit = Math.max(pxPerUnit, detailPxPerUnit);
-      }
+      const pxPerUnit = branchSpace / Math.max(1e-9, maxAccumLen);
       recommendedWidth = Math.round(Math.max(branchSpace, maxAccumLen * pxPerUnit));
     }else{
       const basePerDepth = Math.round(Math.max(80, branchSpace / Math.max(3, maxDepth)));
       recommendedWidth = Math.max(branchSpace, basePerDepth * Math.max(1, maxDepth));
     }
+    const complexityBoost = branchSpace * (1 + Math.log10(leaves + 1) * 0.35);
+    const perDepthComfort = Math.max(branchSpace, Math.max(140, leafLabelSize * 5.5) * Math.max(1, maxDepth));
+    recommendedWidth = Math.max(recommendedWidth, complexityBoost, perDepthComfort);
+    const maxReadableWidthRaw = Math.floor((usableCanvasWidth / READABLE_FIT_SCALE) - labelReserve);
+    const maxReadableWidth = Math.max(branchSpace, Math.min(80000, maxReadableWidthRaw));
+    recommendedWidth = Math.min(recommendedWidth, maxReadableWidth);
     recommendedWidth = Math.max(400, Math.min(80000, recommendedWidth));
     return Math.round(recommendedWidth);
-  },[refreshPaneDimensions, longestLabelWidthPx, xOffset, displayTree, layout, paneDimensions.h]);
+  },[refreshPaneDimensions, longestLabelWidthPx, leafLabelOffsetX, displayTree, layout, tipCount, leafLabelSize]);
 
   useEffect(()=>{
     const recommended = computeAutoHorizontalScale();
@@ -644,7 +643,7 @@ export default function TreeEditor(){
       data:l
     }));
 
-    const labelPad = Math.max(4, xOffset);
+    const labelPad = Math.max(4, leafLabelOffsetX);
     const xs=nodes.map(n=>n.x), ys=nodes.map(n=>n.y);
     const labelAdjustedMax = nodes.reduce((max, n)=>{
       if(n.d.children?.length) return Math.max(max, n.x);
@@ -660,7 +659,7 @@ export default function TreeEditor(){
     const xExtent:[number,number]=[Math.min(...xs,0), Math.max(labelAdjustedMax,0)];
     const yExtent:[number,number]=[Math.min(...ys,0), Math.max(...ys,0)];
     return { nodes, links, totalLength: Math.max(1,xMax), xExtent, yExtent };
-  },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, xOffset, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
+  },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, leafLabelOffsetX, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
 
   /** ---------- ScaleBar: HTML overlay (onscreen) ---------- */
   function formatScaleUnits(value: number){
@@ -681,7 +680,7 @@ export default function TreeEditor(){
     if(!Number.isFinite(totalLength) || totalLength <= 0) return null;
     const basePxPerUnit = xScaleWidth / Math.max(1e-9, totalLength);
     const pxPerUnit = basePxPerUnit * Math.max(zoomK || 1, 1e-6);
-    const scale = computeScaleBar(pxPerUnit, 32, 200);
+    const scale = computeScaleBar(pxPerUnit, 1, 200);
     if(!scale) return null;
     const label = formatScaleUnits(scale.units);
     if(!label) return null;
@@ -721,7 +720,16 @@ export default function TreeEditor(){
     }else{
       setTipNameInput("");
     }
-  },[selectedBranchNode, edgeWidth]);
+    if(selection?.type==='node' && selectedBranchNode){
+      const overrideSize =
+        typeof selectedBranchNode.__nodeSize === "number" && Number.isFinite(selectedBranchNode.__nodeSize)
+          ? selectedBranchNode.__nodeSize
+          : null;
+      setNodeSizeInput(overrideSize !== null ? String(overrideSize) : "");
+    }else{
+      setNodeSizeInput("");
+    }
+  },[selectedBranchNode, edgeWidth, selection]);
 
   const activeSelectionColor = useMemo(()=>{
     if(!selection || !selectedBranchNode) return null;
@@ -792,13 +800,21 @@ export default function TreeEditor(){
 
   // Observe right pane size (used for manual resets)
 
+  const labelPadding = Math.max(4, leafLabelOffsetX);
+  const svgHeight = useMemo(()=>{
+    const tipDriven = Math.max(800, Math.round(yGap * (tipCount + 4)));
+    const paneDriven = Math.max(520, Math.round(paneDimensions.h * 1.25));
+    return Math.max(tipDriven, paneDriven);
+  },[paneDimensions.h, tipCount, yGap]);
+
   // Auto-fit on first render and when core layout knobs change
   const fitToViewport = useCallback(()=>{
     const svgNode=svgRef.current; if(!svgNode||!zoomRef.current) return;
     const pad=60;
     const size = paneSizeRef.current;
     const svgW=svgNode.clientWidth||size.w;
-    const svgH=svgNode.clientHeight||size.h;
+    const rawSvgH=svgNode.clientHeight||size.h;
+    const svgH=Math.max(rawSvgH, svgHeight);
     const minx=Math.min(xExtent[0],0), maxx=Math.max(xExtent[1],0);
     const miny=Math.min(yExtent[0],0), maxy=Math.max(yExtent[1],0);
     const gw=Math.max(1,maxx-minx), gh=Math.max(1,maxy-miny);
@@ -815,7 +831,7 @@ export default function TreeEditor(){
       .duration(250)
       .call(zoomRef.current.transform, d3.zoomIdentity.translate(x,y).scale(k));
     userAdjustedZoomRef.current = false;
-  },[xExtent, yExtent, baseTranslateX, baseTranslateY, treeViewYOffset]);
+  },[xExtent, yExtent, baseTranslateX, baseTranslateY, treeViewYOffset, svgHeight]);
 
   const didFirstFitRef = useRef(false);
 
@@ -835,6 +851,42 @@ export default function TreeEditor(){
       return next;
     });
   },[fitToViewport]);
+
+  const handleBranchLengthInputChange = useCallback((rawValue: string)=>{
+    setBranchLengthInput(rawValue);
+    const trimmed = rawValue.trim();
+    if(!trimmed) return;
+    const numeric = parseFloat(trimmed);
+    if(Number.isNaN(numeric) || numeric < 0) return;
+    actionEditLength(String(numeric), { keepMenu:true });
+  },[actionEditLength]);
+
+  const handleBranchWidthInputChange = useCallback((rawValue: string)=>{
+    setBranchWidthInput(rawValue);
+    const trimmed = rawValue.trim();
+    if(!trimmed){
+      actionEditBranchWidth("", { keepMenu:true });
+      return;
+    }
+    const numeric = parseFloat(trimmed);
+    if(Number.isNaN(numeric) || numeric <= 0) return;
+    actionEditBranchWidth(String(numeric), { keepMenu:true });
+  },[actionEditBranchWidth]);
+
+  const handleNodeSizeInputChange = useCallback((rawValue: string)=>{
+    setNodeSizeInput(rawValue);
+    if(selection?.type!=='node'){
+      return;
+    }
+    const trimmed = rawValue.trim();
+    if(!trimmed){
+      actionEditNodeSize(null, { keepMenu:true });
+      return;
+    }
+    const numeric = parseFloat(trimmed);
+    if(Number.isNaN(numeric) || numeric < 0) return;
+    actionEditNodeSize(numeric, { keepMenu:true });
+  },[selection, actionEditNodeSize]);
 
   const focusOnPoint = useCallback((targetX: number, targetY: number, options?: { scale?: number; preserveScale?: boolean })=>{
     const svgNode = svgRef.current;
@@ -876,9 +928,12 @@ export default function TreeEditor(){
   const computeAutoVerticalSpacing = useCallback(()=>{
     const paneHeight = Math.max(200, paneDimensions.h - 160);
     const leaves = Math.max(1, tipCount);
-    const spacing = Math.max(16, Math.min(140, Math.floor(paneHeight / Math.max(1, leaves))));
-    return spacing;
-  },[paneDimensions.h, tipCount]);
+    const baseSpacing = Math.max(16, Math.min(140, Math.floor(paneHeight / Math.max(1, leaves))));
+    const comfortableBase = Math.max(leafLabelSize * 1.8, 26);
+    const comfortSpacing = Math.min(200, comfortableBase * (1 + Math.log10(leaves + 1) * 0.45));
+    const spacing = Math.min(200, Math.max(baseSpacing, comfortSpacing));
+    return Math.round(spacing);
+  },[paneDimensions.h, tipCount, leafLabelSize]);
 
   const autoAdjustVerticalSpacing = useCallback(()=>{
     const spacing = computeAutoVerticalSpacing();
@@ -1196,6 +1251,24 @@ export default function TreeEditor(){
       setMenu({...menu,visible:false});
     }
   }
+  function actionEditNodeSize(value: number | null, opts?: { keepMenu?: boolean }){
+    if(selection?.type!=='node') return;
+    const id=selection.id;
+    const target=findById(tree,id);
+    if(!target) return;
+    if(value === null){
+      delete target.__nodeSize;
+      setNodeSizeInput("");
+    }else{
+      const clamped=Math.max(0, Math.min(40, value));
+      target.__nodeSize=clamped;
+      setNodeSizeInput(String(clamped));
+    }
+    commitTree(clone(tree), { preserveZoom: true });
+    if(!opts?.keepMenu){
+      setMenu({...menu,visible:false});
+    }
+  }
   function actionColorSelected(c: string){
     if(!selection) return;
     const id=selection.type==='node'?selection.id:selection.childId;
@@ -1206,7 +1279,7 @@ export default function TreeEditor(){
 
 
   // ---------- Export helpers (render scale bar into standalone SVG) ----------
-  function computeScaleBar(pxPerUnit: number, minPx = 24, maxPx = 240){
+  function computeScaleBar(pxPerUnit: number, minPx = 1, maxPx = 240){
     if(!Number.isFinite(pxPerUnit) || pxPerUnit <= 0) return null;
     const targetPx=100;
     const rawUnits=targetPx/Math.max(1e-9,pxPerUnit);
@@ -1269,7 +1342,7 @@ export default function TreeEditor(){
     // Vector scale bar overlay
     if(layout==='phylogram' && Number.isFinite(totalLength) && totalLength>0){
       const pxPerUnit = (xScaleWidth / Math.max(1e-9,totalLength));
-      const scale = computeScaleBar(pxPerUnit, 32, 220);
+    const scale = computeScaleBar(pxPerUnit, 1, 220);
       if(scale){
         const sbG = document.createElementNS("http://www.w3.org/2000/svg","g");
         const sbX = bbox.x - pad + 16, sbY = bbox.y - pad + 18;
@@ -1293,7 +1366,13 @@ export default function TreeEditor(){
 
   // ---------- Downloads ----------
   function downloadNewick(){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([toNewick(tree)],{type:'text/plain'})); a.download='edited_tree.nwk'; a.click(); }
-  function downloadTipList(){ const tips=collectTips(tree).map(t=>t.name||'Unnamed').join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([tips],{type:'text/plain'})); a.download='tips.txt'; a.click(); }
+  function downloadLeafList(){
+    const leaves=collectTips(tree).map(t=>t.name||'Unnamed').join('\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([leaves],{type:'text/plain'}));
+    a.download='leaves.txt';
+    a.click();
+  }
   async function downloadSVG(){ const blob=buildStandaloneSVGBlobWithScaleBar(); if(!blob) return; const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tree.svg'; a.click(); }
   async function downloadPNG(){
     const svgBlob=buildStandaloneSVGBlobWithScaleBar(); if(!svgBlob) return;
@@ -1364,12 +1443,6 @@ export default function TreeEditor(){
   }
 
   const selInfo = (()=>{ if(!selection) return 'None'; if(selection.type==='node'){ const t=findById(tree,selection.id); return t?.name||'[node]'; } const t=findById(tree,selection.childId); return t?.name||'[branch]'; })();
-  const labelPadding = Math.max(4, xOffset);
-  const svgHeight = useMemo(()=>{
-    const layoutDriven = Math.max(560, yGap * (tipCount + 2));
-    const paneDriven = Math.max(420, paneDimensions.h);
-    return Math.max(layoutDriven, paneDriven);
-  },[paneDimensions.h, tipCount, yGap]);
   const tabs: { id: typeof activeTab; label: string }[] = [
     { id: "data", label: "Data" },
     { id: "selection", label: "Selection" },
@@ -1436,12 +1509,54 @@ export default function TreeEditor(){
               </div>
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Length</span>
-                <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={branchLengthInput} onChange={(e)=>setBranchLengthInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionEditLength(e.currentTarget.value); }} />
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className={`${INPUT_CLASSES} w-full`}
+                  placeholder="Enter & hit ↵"
+                  value={branchLengthInput}
+                  onChange={(e)=>handleBranchLengthInputChange(e.currentTarget.value)}
+                  onKeyDown={(e)=>{ if(e.key==='Enter') actionEditLength(e.currentTarget.value); }}
+                />
               </div>
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
-                <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={branchWidthInput} onChange={(e)=>setBranchWidthInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionEditBranchWidth(e.currentTarget.value); }} />
+                <input
+                  type="number"
+                  min={0}
+                  step={0.25}
+                  className={`${INPUT_CLASSES} w-full`}
+                  placeholder="Enter & hit ↵"
+                  value={branchWidthInput}
+                  onChange={(e)=>handleBranchWidthInputChange(e.currentTarget.value)}
+                  onKeyDown={(e)=>{ if(e.key==='Enter') actionEditBranchWidth(e.currentTarget.value); }}
+                />
               </div>
+              {selection?.type==='node' && (
+                <div className="col-span-2 space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    className={`${INPUT_CLASSES} w-full`}
+                    placeholder="Default"
+                    value={nodeSizeInput}
+                    onChange={(e)=>handleNodeSizeInputChange(e.currentTarget.value)}
+                    onKeyDown={(e)=>{
+                      if(e.key==='Enter'){
+                        const parsed=parseFloat(e.currentTarget.value);
+                        if(Number.isNaN(parsed)){
+                          actionEditNodeSize(null);
+                        }else{
+                          actionEditNodeSize(parsed);
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              )}
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Name</span>
                 <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionRenameTip(e.currentTarget.value); }} />
@@ -1477,15 +1592,30 @@ export default function TreeEditor(){
             <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Leaf label size</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={leafLabelSize} onChange={(e)=>setLeafLabelSize(parseFloat(e.target.value)||15)} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Tip X offset</label>
-              <input
-                type="number"
-                className={`${INPUT_CLASSES} w-24`}
-                value={xOffset}
-                min={0}
-                step={2}
-                onChange={(e)=>setXOffset(Math.max(0, parseFloat(e.target.value)||0))}
-              />
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-slate-600">Leaf offset</label>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">X</span>
+                <input
+                  type="number"
+                  className={`${INPUT_CLASSES} w-20`}
+                  value={leafLabelOffsetX}
+                  min={0}
+                  step={2}
+                  onChange={(e)=>setLeafLabelOffsetX(Math.max(0, parseFloat(e.target.value)||0))}
+                />
+                <span className="text-xs text-slate-500">Y</span>
+                <input
+                  type="number"
+                  className={`${INPUT_CLASSES} w-20`}
+                  value={leafLabelOffsetY}
+                  step={1}
+                  onChange={(e)=>{
+                    const parsed = parseFloat(e.target.value);
+                    setLeafLabelOffsetY(Number.isFinite(parsed) ? parsed : 0);
+                  }}
+                />
+              </div>
             </div>
             <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Vertical spacing</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={yGap} onChange={(e)=>handleManualYGapChange(parseFloat(e.target.value))} />
@@ -1587,6 +1717,21 @@ export default function TreeEditor(){
                           />
                         </div>
                       </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Decimals</span>
+                        <input
+                          type="number"
+                          className={`${INPUT_CLASSES} w-20`}
+                          value={branchLengthPrecision}
+                          min={0}
+                          max={6}
+                          step={1}
+                          onChange={(e)=>{
+                            const next=parseFloat(e.target.value);
+                            setBranchLengthPrecision(Number.isFinite(next)?next:3);
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1677,7 +1822,7 @@ export default function TreeEditor(){
         return (
           <div className="grid grid-cols-2 gap-2 mt-2 text-[0.95rem]">
             <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
-            <button className={BUTTON_CLASSES} onClick={downloadTipList}>Tip list</button>
+            <button className={BUTTON_CLASSES} onClick={downloadLeafList}>Leaf list</button>
             <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
             <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
             <button className={`${BUTTON_CLASSES} col-span-2`} onClick={downloadPDF}>PDF (vector)</button>
@@ -1770,7 +1915,7 @@ export default function TreeEditor(){
                   className={[
                     "px-4 py-2 rounded-xl text-sm font-semibold shadow-md border transition-all duration-150",
                     activeTab===tab.id
-                      ? "bg-[#286699] text-white border-[#1d4f7c] shadow-lg"
+                      ? "bg-[#3874a6] text-white border-[#3874a6] shadow-lg"
                       : "bg-[#e4e4e4] text-[#286699] border border-transparent hover:border-[#286699]"
                   ].join(" ")}
                 >
@@ -1789,7 +1934,7 @@ export default function TreeEditor(){
           ref={rightPaneRef}
           className="flex-1 min-w-[640px] p-4 bg-white rounded-3xl shadow-lg border border-slate-100/80 overflow-auto relative"
           onClick={handleCanvasBackgroundClick}
-          style={{ height:"calc(85vh)" }}
+          style={{ minHeight:"calc(90vh)", height:"calc(95vh)" }}
         >
           <div className="absolute right-4 top-4 z-30 flex flex-wrap items-end justify-end gap-6">
             <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
@@ -1838,9 +1983,9 @@ export default function TreeEditor(){
             </button>
             <button
               type="button"
-              className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-300"
+              className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
               onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
-              aria-label="Search tips"
+              aria-label="Search leaves"
             >
               <IconSearch />
             </button>
@@ -1861,13 +2006,13 @@ export default function TreeEditor(){
           {searchPopoverOpen && (
             <div className="absolute right-4 top-28 z-30 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
               <div className="flex items-center justify-between mb-3">
-                <span className="font-semibold">Search tips</span>
+                <span className="font-semibold">Search leaves</span>
                 <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>Close</button>
               </div>
               <div className="space-y-3">
                 <input
                   className={`${INPUT_CLASSES} w-full`}
-                  placeholder={useRegex?"Enter regex pattern":"Tip name contains..."}
+                  placeholder={useRegex?"Enter regex pattern":"Leaf name contains..."}
                   value={search}
                   onChange={(e)=>setSearch(e.target.value)}
                 />
@@ -1921,9 +2066,9 @@ export default function TreeEditor(){
                 const childData = (target.d?.data ?? {}) as TreeNode;
                 const parentId = parentData.__id;
                 const childId = childData.__id;
-                const parentSelected = parentId !== undefined && selection?.type==='node' && selection?.id===parentId;
+                const childSelected = childId !== undefined && selection?.type==='node' && selection?.id===childId;
                 const isSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
-                const highlightActive = parentSelected || isSelected;
+                const highlightActive = childSelected || isSelected;
                 const customColor = childData.__edgeColor;
                 const customWidth = typeof childData.__edgeWidth === 'number' && Number.isFinite(childData.__edgeWidth) ? childData.__edgeWidth : null;
                 const highlightColor = '#f0a608ff';
@@ -1994,7 +2139,7 @@ export default function TreeEditor(){
                       data-base-width={baseWidth}
                     />
                     {layout==='phylogram' && showBranchLen && (
-                      <text x={midX + branchLenOffsetX} y={target.y + branchLenOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-600 select-none">{branchLenValue.toFixed(3)}</text>
+                      <text x={midX + branchLenOffsetX} y={target.y + branchLenOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-600 select-none">{branchLenValue.toFixed(branchLengthPrecisionSafe)}</text>
                     )}
                     {showBootstrap && typeof supportValue === 'string' && supportValue.trim() && !Number.isNaN(parseFloat(supportValue)) && (
                       <text x={midX + bootstrapOffsetX} y={target.y + bootstrapOffsetY} fontSize={supportLabelSize} textAnchor="middle" className="fill-slate-500 select-none">{supportValue}</text>
@@ -2012,10 +2157,14 @@ export default function TreeEditor(){
                 const isCollapsedLeaf = Boolean(isDisplayLeaf && n.d.data.__isCollapsedPlaceholder);
                 const isSimpleLeaf = isDisplayLeaf && !isCollapsedLeaf;
                 const nodeColor = n.d.data.__color;
-                const r=isDisplayLeaf ? Math.max(0, leafNodeDotSize) : Math.max(0, internalNodeDotSize);
-                const baseCircleFill = isDisplayLeaf ? (nodeColor || '#111827') : '#374151';
-                const circleStroke = selected ? '#ef4444' : 'transparent';
-                const circleStrokeWidth = selected ? Math.max(1.2, r * 0.85) : 0;
+                const defaultRadius = isDisplayLeaf ? Math.max(0, leafNodeDotSize) : Math.max(0, internalNodeDotSize);
+                const customRadius = typeof n.d.data.__nodeSize === "number" && Number.isFinite(n.d.data.__nodeSize)
+                  ? Math.max(0, n.d.data.__nodeSize as number)
+                  : null;
+                const r = customRadius ?? defaultRadius;
+                const baseCircleFill = nodeColor || (isDisplayLeaf ? '#111827' : '#374151');
+                const circleStrokeColor = selected ? '#f0a608ff' : 'transparent';
+                const circleStrokeWidth = selected ? Math.max(1.2, r * 0.75) : 0;
                 const collapsedMetrics = isCollapsedLeaf ? getCollapsedTriangleMetrics(collapsedTipCount) : null;
                 const collapsedWidth = collapsedMetrics?.width ?? 0;
                 const textStartX = collapsedWidth + labelPadding;
@@ -2028,14 +2177,14 @@ export default function TreeEditor(){
                 const isActiveSearchTarget = activeSearchNodeId !== null && nodeId === activeSearchNodeId;
                 const highlightPaddingX = 8;
                 const highlightPaddingY = 4;
-                const highlightBaselineY = 4;
+                const labelBaselineY = leafLabelOffsetY;
                 const shouldItalicize = italic && (isSimpleLeaf || isCollapsedLeaf);
                 const highlightable = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
                 const estimatedLabelWidth = highlightable ? measureLabelWidth(displayLabelText, leafLabelSize, shouldItalicize) : 0;
                 const highlightWidth = Math.max(estimatedLabelWidth + highlightPaddingX * 2, leafLabelSize * 2);
                 const highlightHeight = leafLabelSize + highlightPaddingY * 2;
                 const highlightX = textStartX - highlightPaddingX;
-                const highlightY = highlightBaselineY - leafLabelSize - highlightPaddingY;
+                const highlightY = labelBaselineY - highlightHeight / 2;
                 const labelClasses = [
                   "select-none",
                   highlightable ? "font-semibold" : "",
@@ -2052,13 +2201,13 @@ export default function TreeEditor(){
                 return (
                   <g key={i} transform={`translate(${n.x},${n.y})`} className="cursor-pointer" onClick={(e)=>onClickNode(n,e)}>
                     {isCollapsedLeaf && (
-                      <title>{`Collapsed subtree (${collapsedTipCount ?? 0} tip${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
+                      <title>{`Collapsed subtree (${collapsedTipCount ?? 0} leaf${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
                     )}
                     {showNodeDots && (
                       <circle
                         r={r}
                         fill={baseCircleFill}
-                        stroke={circleStroke}
+                        stroke={circleStrokeColor}
                         strokeWidth={circleStrokeWidth}
                         data-base-fill={baseCircleFill}
                       />
@@ -2089,10 +2238,12 @@ export default function TreeEditor(){
                     {isSimpleLeaf && (
                       <text
                         x={textStartX}
-                        y={highlightBaselineY}
+                        y={labelBaselineY}
                         fontSize={leafLabelSize}
                         fill={labelFill}
                         className={labelClasses}
+                        dominantBaseline="middle"
+                        alignmentBaseline="middle"
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -2101,10 +2252,12 @@ export default function TreeEditor(){
                     {isCollapsedLeaf && (
                       <text
                         x={textStartX}
-                        y={highlightBaselineY}
+                        y={labelBaselineY}
                         fontSize={leafLabelSize}
                         fill={labelFill}
                         className={labelClasses}
+                        dominantBaseline="middle"
+                        alignmentBaseline="middle"
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -2159,83 +2312,53 @@ export default function TreeEditor(){
                   Expand
                 </button>
                 <div className="col-span-2 space-y-2">
-                  <span className="text-sm font-medium text-slate-700">Edge / label color</span>
+                  <span className="text-sm font-medium text-slate-700">
+                    {selection?.type==='node' ? "Node color" : "Edge color"}
+                  </span>
                   <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} />
                 </div>
+                {selection?.type==='node' && (
+                  <div className="col-span-2 space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                    <input
+                      type="number"
+                      className={`${INPUT_CLASSES} w-full`}
+                      min={0}
+                      step={0.5}
+                      placeholder="Default"
+                      value={nodeSizeInput}
+                      onChange={(e)=>handleNodeSizeInputChange(e.currentTarget.value)}
+                    />
+                  </div>
+                )}
                 <div className="col-span-2 space-y-1">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Length</span>
                   <div className="flex items-stretch gap-2">
-                    <div className="relative flex-1 group">
-                      <input
-                        className={`${INPUT_CLASSES} w-full pr-8`}
-                        placeholder="Enter & hit ↵"
-                        value={branchLengthInput}
-                        onChange={(e)=>setBranchLengthInput(e.currentTarget.value)}
-                        onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditLength(e.currentTarget.value); } }}
-                      />
-                      <div className="absolute right-1 top-1 bottom-1 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity text-[0.55rem]" role="group" aria-label="Length nudger">
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchLengthInput);
-                            const fallback=selection?findById(tree, selection.type==='link'?selection.childId:selection.id)?.length ?? 0:0;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditLength(String(Math.max(0, base + 0.1)), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Increase length"
-                        >▲</button>
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchLengthInput);
-                            const fallback=selection?findById(tree, selection.type==='link'?selection.childId:selection.id)?.length ?? 0:0;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditLength(String(Math.max(0, base - 0.1)), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Decrease length"
-                        >▼</button>
-                      </div>
-                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className={`${INPUT_CLASSES} flex-1`}
+                      placeholder="Enter & hit ↵"
+                      value={branchLengthInput}
+                      onChange={(e)=>handleBranchLengthInputChange(e.currentTarget.value)}
+                      onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditLength(e.currentTarget.value); } }}
+                    />
                   </div>
                 </div>
                 <div className="col-span-2 space-y-1">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
                   <div className="flex items-stretch gap-2">
-                    <div className="relative flex-1 group">
-                      <input
-                        className={`${INPUT_CLASSES} w-full pr-8`}
-                        placeholder="Enter & hit ↵"
-                        value={branchWidthInput}
-                        onChange={(e)=>setBranchWidthInput(e.currentTarget.value)}
-                        onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditBranchWidth(e.currentTarget.value); } }}
-                      />
-                      <div className="absolute right-1 top-1 bottom-1 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity text-[0.55rem]" role="group" aria-label="Width nudger">
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchWidthInput);
-                            const fallback=selection?(findById(tree, selection.type==='link'?selection.childId:selection.id)?.__edgeWidth ?? edgeWidth):edgeWidth;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditBranchWidth(String(base + 0.25), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Increase width"
-                        >▲</button>
-                        <button
-                          className="flex-1 px-1 text-slate-600 hover:text-slate-900 leading-none"
-                          onClick={()=>{
-                            const current=parseFloat(branchWidthInput);
-                            const fallback=selection?(findById(tree, selection.type==='link'?selection.childId:selection.id)?.__edgeWidth ?? edgeWidth):edgeWidth;
-                            const base=Number.isFinite(current)?current:fallback;
-                            actionEditBranchWidth(String(Math.max(0.25, base - 0.25)), { keepMenu:true });
-                          }}
-                          type="button"
-                          title="Decrease width"
-                        >▼</button>
-                      </div>
-                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.25}
+                      className={`${INPUT_CLASSES} flex-1`}
+                      placeholder="Enter & hit ↵"
+                      value={branchWidthInput}
+                      onChange={(e)=>handleBranchWidthInputChange(e.currentTarget.value)}
+                      onKeyDown={(e)=>{ if(e.key==='Enter'){ actionEditBranchWidth(e.currentTarget.value); } }}
+                    />
                   </div>
                 </div>
                 <div className="col-span-2 space-y-1">
