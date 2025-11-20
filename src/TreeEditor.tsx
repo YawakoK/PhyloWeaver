@@ -54,7 +54,7 @@ type LayoutSnapshot = {
   yExtent: [number, number];
 };
 
-const PANEL_CARD_CLASSES = "p-4 rounded-2xl border border-[#e4e4e4] bg-white/95 shadow-lg space-y-4";
+const PANEL_CARD_CLASSES = "p-4 rounded-xl  bg-white/95 shadow-lg space-y-4";
 // const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
 const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
@@ -630,8 +630,9 @@ export default function TreeEditor(){
       d.children?.forEach(child=>assignX(child as HierarchyNodeWithLayout));
     })(root);
 
-    const xMax=d3.max(root.descendants().map(d=>(d as HierarchyNodeWithLayout)._x ?? 0)) ?? 1;
-    const xScale=d3.scaleLinear().domain([0, Math.max(1,xMax)]).range([0, xScaleWidth]);
+    const xMaxRaw=d3.max(root.descendants().map(d=>(d as HierarchyNodeWithLayout)._x ?? 0));
+    const xMax=(Number.isFinite(xMaxRaw) && (xMaxRaw ?? 0) > 0) ? (xMaxRaw as number) : 1;
+    const xScale=d3.scaleLinear().domain([0, xMax]).range([0, xScaleWidth]);
     const nodes: PositionedNode[]=root.descendants().map(d=>{
       const layoutNode=d as HierarchyNodeWithLayout;
       return { x:xScale(layoutNode._x ?? 0), y:yMap.get(d) ?? 0, d:layoutNode };
@@ -658,7 +659,7 @@ export default function TreeEditor(){
     }, Math.max(...xs, 0));
     const xExtent:[number,number]=[Math.min(...xs,0), Math.max(labelAdjustedMax,0)];
     const yExtent:[number,number]=[Math.min(...ys,0), Math.max(...ys,0)];
-    return { nodes, links, totalLength: Math.max(1,xMax), xExtent, yExtent };
+    return { nodes, links, totalLength: xMax, xExtent, yExtent };
   },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, leafLabelOffsetX, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
 
   /** ---------- ScaleBar: HTML overlay (onscreen) ---------- */
@@ -685,7 +686,7 @@ export default function TreeEditor(){
     const label = formatScaleUnits(scale.units);
     if(!label) return null;
     return (
-      <div className="absolute left-6 top-4 bg-transparent px-3 py-2 rounded-xl border border-transparent text-s text-slate-700">
+      <div className="pointer-events-none absolute left-6 top-4 z-30 bg-transparent px-3 py-2 rounded-xl border border-transparent text-s text-slate-700">
         <div className="flex flex-col gap-1">
           <div className="h-[2px] bg-slate-700" style={{ width: scale.px }} />
           <span className="text-[0.7rem] font-medium text-slate-700">{label}</span>
@@ -1885,7 +1886,7 @@ export default function TreeEditor(){
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900" onClick={()=>{ if(menu.visible) setMenu({...menu,visible:false}); if(searchPopoverOpen) setSearchPopoverOpen(false); }}>
       <div className="border-b border-white/30 bg-white/70 backdrop-blur">
-        <div className="w-full px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between">
+        <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
             <span className="text-sm text-slate-500">Interactive editor for phylogenies</span>
@@ -1932,131 +1933,138 @@ export default function TreeEditor(){
         {/* Tree canvas */}
         <div
           ref={rightPaneRef}
-          className="flex-1 min-w-[640px] p-4 bg-white rounded-3xl shadow-lg border border-slate-100/80 overflow-auto relative"
+          className="flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative"
           onClick={handleCanvasBackgroundClick}
           style={{ minHeight:"calc(90vh)", height:"calc(95vh)" }}
         >
-          <div className="absolute right-4 top-4 z-30 flex flex-wrap items-end justify-end gap-6">
-            <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
-              <span>↔ Horizontal scale</span>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-700 w-14 text-right">{Math.round(xScaleWidth)}</span>
-                <input
-                  type="range"
-                  min={200}
-                  max={horizontalScaleMax}
-                  step={50}
-                  value={xScaleWidth}
-                  onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSlider(parseFloat(e.target.value)); }}
-                  className="w-32 accent-[#286699]"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
-              <span>↕ Vertical spacing</span>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-700 w-10 text-right">{Math.round(yGap)}</span>
-                <input
-                  type="range"
-                  min={12}
-                  max={200}
-                  step={2}
-                  value={yGap}
-                  onChange={(e)=>{ e.stopPropagation(); handleManualYGapChange(parseFloat(e.target.value)); }}
-                  className="w-24 accent-[#286699]"
-                />
-              </div>
-            </div>
-            <button
-              className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
-              disabled={!canUndo}
-              onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
-            >
-              Undo
-            </button>
-            <button
-              className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
-              disabled={!canRedo}
-              onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
-            >
-              Redo
-            </button>
-            <button
-              type="button"
-              className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
-              onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
-              aria-label="Search leaves"
-            >
-              <IconSearch />
-            </button>
-            <button
-              className={`${BUTTON_CLASSES} text-base`}
-              onClick={(e)=>{
-                e.stopPropagation();
-                setSelection(null);
-                setMenu({...menu,visible:false});
-                setSearchPopoverOpen(false);
-                applyAutoHorizontalScale();
-                requestAnimationFrame(()=>autoAdjustVerticalSpacing());
-              }}
-            >
-              Reset view
-            </button>
-          </div>
-          {searchPopoverOpen && (
-            <div className="absolute right-4 top-28 z-30 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-semibold">Search leaves</span>
-                <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>Close</button>
-              </div>
-              <div className="space-y-3">
-                <input
-                  className={`${INPUT_CLASSES} w-full`}
-                  placeholder={useRegex?"Enter regex pattern":"Leaf name contains..."}
-                  value={search}
-                  onChange={(e)=>setSearch(e.target.value)}
-                />
-                <label className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
-                  Use regular expressions
-                </label>
-                {hasSearchMatches && (
-                  <div className="flex items-center justify-between text-xs text-slate-600">
-                    <span>{searchPositionLabel}</span>
-                    <div className="flex gap-2">
-                      <button
-                        className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                        onClick={()=>handleSearchNavigate(-1)}
-                        disabled={!hasSearchMatches}
-                      >
-                        ←
-                      </button>
-                      <button
-                        className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                        onClick={()=>handleSearchNavigate(1)}
-                        disabled={!hasSearchMatches}
-                      >
-                        →
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>Clear</button>
-                  {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
+          <div className="flex h-full flex-col gap-4">
+            <div className="relative flex flex-wrap items-end justify-end gap-6">
+              {layout==='phylogram' && (
+                <div className="absolute left-0 top-0 pointer-events-none z-30">
+                  <ScaleBarHTML totalLength={totalLength} zoomK={zoomK} />
+                </div>
+              )}
+              <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
+                <span>↔ Horizontal scale</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-700 w-14 text-right">{Math.round(xScaleWidth)}</span>
+                  <input
+                    type="range"
+                    min={200}
+                    max={horizontalScaleMax}
+                    step={50}
+                    value={xScaleWidth}
+                    onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSlider(parseFloat(e.target.value)); }}
+                    className="w-32 accent-[#286699]"
+                  />
                 </div>
               </div>
+              <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
+                <span>↕ Vertical spacing</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-700 w-10 text-right">{Math.round(yGap)}</span>
+                  <input
+                    type="range"
+                    min={12}
+                    max={200}
+                    step={2}
+                    value={yGap}
+                    onChange={(e)=>{ e.stopPropagation(); handleManualYGapChange(parseFloat(e.target.value)); }}
+                    className="w-24 accent-[#286699]"
+                  />
+                </div>
+              </div>
+              <button
+                className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
+                disabled={!canUndo}
+                onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
+              >
+                Undo
+              </button>
+              <button
+                className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
+                disabled={!canRedo}
+                onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
+              >
+                Redo
+              </button>
+              <button
+                type="button"
+                className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
+                onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
+                aria-label="Search leaves"
+              >
+                <IconSearch />
+              </button>
+              <button
+                className={`${BUTTON_CLASSES} text-base`}
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  setSelection(null);
+                  setMenu({...menu,visible:false});
+                  setSearchPopoverOpen(false);
+                  applyAutoHorizontalScale();
+                  requestAnimationFrame(()=>autoAdjustVerticalSpacing());
+                }}
+              >
+                Reset view
+              </button>
+              {searchPopoverOpen && (
+                <div className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-semibold">Search leaves</span>
+                    <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>Close</button>
+                  </div>
+                  <div className="space-y-3">
+                    <input
+                      className={`${INPUT_CLASSES} w-full`}
+                      placeholder={useRegex?"Enter regex pattern":"Leaf name contains..."}
+                      value={search}
+                      onChange={(e)=>setSearch(e.target.value)}
+                    />
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
+                      Use regular expressions
+                    </label>
+                    {hasSearchMatches && (
+                      <div className="flex items-center justify-between text-xs text-slate-600">
+                        <span>{searchPositionLabel}</span>
+                        <div className="flex gap-2">
+                          <button
+                            className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                            onClick={()=>handleSearchNavigate(-1)}
+                            disabled={!hasSearchMatches}
+                          >
+                            ←
+                          </button>
+                          <button
+                            className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                            onClick={()=>handleSearchNavigate(1)}
+                            disabled={!hasSearchMatches}
+                          >
+                            →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>Clear</button>
+                      {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          <svg
-            ref={svgRef}
-            width={"100%"}
-            height={svgHeight}
-            className="border border-transparent rounded-2xl bg-white"
-            style={{ display:"block" }}
-            onClick={handleSvgBlankClick}
-          >
-            <g ref={gRef}>
+            <div className="relative flex-1">
+              <svg
+                ref={svgRef}
+                width={"100%"}
+                height={svgHeight}
+                className="border border-transparent rounded-2xl bg-white"
+                style={{ display:"block" }}
+                onClick={handleSvgBlankClick}
+              >
+                <g ref={gRef}>
               {/* Edges */}
               {links.map((link, idx)=>{
                 const source=link.source;
@@ -2279,9 +2287,8 @@ export default function TreeEditor(){
               })}
             </g>
           </svg>
-
-          {/* On-screen scale bar */}
-          {layout==='phylogram' && <ScaleBarHTML totalLength={totalLength} zoomK={zoomK} />}
+            </div>
+          </div>
 
           {/* Context menu */}
           {menu.visible && (
