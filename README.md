@@ -46,7 +46,7 @@ https://yawak.jp/PhyloWeaver/
 
 If you use PhyloWeaver in academic work, please cite:
 
-> Kawaguchi YW. (2025) *PhyloWeaver: an interactive web editor for phylogenetic trees.* doi.org/10.5281/zenodo.17637612
+> Kawaguchi YW. (2025) PhyloWeaver: an interactive web editor for phylogenetic trees. Available at https://yawak.jp/PhyloWeaver/; DOI: 10.5281/zenodo.17637612
 
 [![DOI](https://zenodo.org/badge/1095063348.svg)](https://doi.org/10.5281/zenodo.17637612)
 
