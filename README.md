@@ -7,11 +7,6 @@ It provides an intuitive interface for manipulating tree topology, adjusting lay
 
 https://yawak.jp/PhyloWeaver/
 
-## Data Privacy
-
-PhyloWeaver processes all data locally in your browser.  
-Your Newick files are **not uploaded**, **not stored**, and **never transmitted** to any server.
-
 ## Features
 
 - **Newick import**
@@ -28,6 +23,8 @@ Your Newick files are **not uploaded**, **not stored**, and **never transmitted*
   - Highlight nodes by taxon name
 - **Styling options**
   - Adjust branch width, colors, and other display settings
+  - Change leave name and color
+  - Chnage node size and color
 - **Export options**
   - Export the current view as NEWICK file, tip list, and image (SVG/PDF/PNG).
 
@@ -35,6 +32,7 @@ Your Newick files are **not uploaded**, **not stored**, and **never transmitted*
 ## Supported formats
 
 * **Input:** Newick (`.nwk`, `.newick`, `.tre`, `.tree`)
+* **Output** Newick (`.nwk`), Leave name list (`.txt`), Images (`.svg`, `.png`, `.pdf`)
 
 ## Development notes
 
@@ -42,8 +40,6 @@ Your Newick files are **not uploaded**, **not stored**, and **never transmitted*
 * **Build tool:** Vite
 * **Visualization:** D3.js
 * **Styling:** Tailwind CSS
-
-The source code is modular and organized to simplify extension and customization.
 
 
 ## Citation
@@ -54,6 +50,10 @@ If you use PhyloWeaver in academic work, please cite:
 
 [![DOI](https://zenodo.org/badge/1095063348.svg)](https://doi.org/10.5281/zenodo.17637612)
 
+## Data Privacy
+
+PhyloWeaver processes all data locally in your browser.  
+Your Newick files are **not uploaded**, **not stored**, and **never transmitted** to any server.
 
 ## License
 
