@@ -343,6 +343,16 @@ function collapseUnaryInPlace(node: TreeNode): TreeNode {
 export default function TreeEditor(){
   const EXAMPLE="((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4)88/0.92:0.5);";
   const [rawText,setRawText]=useState(EXAMPLE);
+  const newickWarning = useMemo(()=>{
+    if(!rawText.trim()) return null;
+    let open=0, close=0;
+    for(const ch of rawText){
+      if(ch==="(") open++;
+      else if(ch===")") close++;
+    }
+    if(open===close) return null;
+    return `Parentheses mismatch in NEWICK string.\nFound ${open} "(" and ${close} ")".`;
+  },[rawText]);
   const [tree,setTree]=useState<TreeNode>(()=>ensureIds(parseNewick(EXAMPLE)));
   const [historyStack, setHistoryStack] = useState<TreeNode[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -384,9 +394,73 @@ export default function TreeEditor(){
   const [paneDimensions, setPaneDimensions] = useState({ w: 1200, h: 600 });
   const [autoLayoutVersion, setAutoLayoutVersion] = useState(0);
   const textMeasureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const newickTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
+  const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
+  const currentNewick = useMemo(()=>toNewick(tree),[tree]);
+  const newickStats = useMemo(()=>{
+    let internalNodes=0;
+    let branchCount=0;
+    let totalLength=0;
+    let maxDepth=0;
+    const traverse=(node: TreeNode, depth: number)=>{
+      maxDepth=Math.max(maxDepth, depth);
+      const children=node.children??[];
+      if(children.length){
+        internalNodes++;
+        children.forEach(child=>{
+          branchCount++;
+          if(typeof child.length==="number" && Number.isFinite(child.length)){
+            totalLength+=child.length;
+          }
+          traverse(child, depth+1);
+        });
+      }
+    };
+    traverse(tree,0);
+    return {
+      tips: tipCount,
+      internalNodes,
+      branchCount,
+      maxDepth,
+      totalLength
+    };
+  },[tree, tipCount]);
+  const copyNewickToClipboard = useCallback(async ()=>{
+    const fallbackCopy = ()=>{
+      if(typeof document === "undefined") throw new Error("Clipboard API unavailable");
+      const textarea = newickTextareaRef.current;
+      if(!textarea) throw new Error("No NEWICK textarea");
+      const previousActive = document.activeElement as HTMLElement | null;
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      const success = document.execCommand("copy");
+      textarea.setSelectionRange(0, 0);
+      if(previousActive && typeof previousActive.focus === "function") previousActive.focus();
+      if(!success) throw new Error("execCommand copy failed");
+    };
+    try{
+      if(typeof navigator !== "undefined" && navigator.clipboard?.writeText){
+        await navigator.clipboard.writeText(currentNewick);
+        setNewickCopyState("copied");
+        return;
+      }
+      fallbackCopy();
+      setNewickCopyState("copied");
+    }catch(err){
+      console.warn("Failed to copy NEWICK via Clipboard API", err);
+      try{
+        fallbackCopy();
+        setNewickCopyState("copied");
+      }catch(fallbackErr){
+        console.warn("Fallback copy failed", fallbackErr);
+        setNewickCopyState("error");
+      }
+    }
+  },[currentNewick]);
   const tipCountsById = useMemo<Map<number, number>>(()=>{
     const map = new Map<number, number>();
     mapTipCounts(tree, map);
@@ -1087,6 +1161,12 @@ export default function TreeEditor(){
     });
   },[searchMatches.length]);
 
+  useEffect(()=>{
+    if(newickCopyState==="idle") return;
+    const id=setTimeout(()=>setNewickCopyState("idle"), 2000);
+    return ()=>clearTimeout(id);
+  },[newickCopyState]);
+
   const handleSearchNavigate = useCallback((direction: 1 | -1)=>{
     setSearchFocusIndex(prev=>{
       const count = searchMatches.length;
@@ -1105,7 +1185,18 @@ export default function TreeEditor(){
     reader.onload=()=>{ try{ setRawText(String(reader.result)); setActiveTab("data"); }catch(e){ const message = e instanceof Error ? e.message : String(e); alert("Failed to read NEWICK: "+message);} };
     reader.readAsText(f);
   }
-  function applyText(){ try{ commitTree(ensureIds(parseNewick(rawText))); }catch(e){ const message = e instanceof Error ? e.message : String(e); alert("Failed to parse NEWICK: "+message);} }
+  function applyText(){
+    if(newickWarning){
+      alert(newickWarning);
+      return;
+    }
+    try{
+      commitTree(ensureIds(parseNewick(rawText)));
+    }catch(e){
+      const message = e instanceof Error ? e.message : String(e);
+      alert("Failed to parse NEWICK: "+message);
+    }
+  }
   function loadExample(){ const s=EXAMPLE; setRawText(s); try{ commitTree(ensureIds(parseNewick(s))); }catch(e){ const message = e instanceof Error ? e.message : String(e); alert("Failed to parse example: "+message);} }
 
   function openMenuAt(cx: number, cy: number){
@@ -1463,8 +1554,43 @@ export default function TreeEditor(){
               <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>Load example</button>
             </div>
             <p className="text-sm text-slate-600">Uploaded text appears below. Review or edit before applying.</p>
-            <textarea className={`${INPUT_CLASSES} w-full h-32 resize-none`} placeholder="Paste NEWICK string" value={rawText} onChange={(e)=>setRawText(e.target.value)} />
+            <div className="space-y-1">
+              <textarea
+                className={`${INPUT_CLASSES} w-full h-32 resize-none ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
+                placeholder="Paste NEWICK string"
+                value={rawText}
+                onChange={(e)=>setRawText(e.target.value)}
+              />
+              {newickWarning && <p className="text-sm font-semibold text-red-600 whitespace-pre-line">{newickWarning}</p>}
+            </div>
             <button className={`${BUTTON_CLASSES} w-full`} onClick={applyText}>Apply NEWICK</button>
+            {newickStats && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current tree stats</div>
+                <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-2 text-[0.85rem]">
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Tips</div>
+                    <div className="font-semibold text-slate-900">{newickStats.tips}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Internal</div>
+                    <div className="font-semibold text-slate-900">{newickStats.internalNodes}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Branches</div>
+                    <div className="font-semibold text-slate-900">{newickStats.branchCount}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Max depth</div>
+                    <div className="font-semibold text-slate-900">{newickStats.maxDepth}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500 whitespace-nowrap">Total length</div>
+                    <div className="font-semibold text-slate-900">{newickStats.totalLength.toFixed(4)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="pt-2 border-t border-slate-200">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Layout preset</span>
               <div className="mt-2 flex gap-2 flex-wrap">
@@ -1821,20 +1947,48 @@ export default function TreeEditor(){
         );
       case "export":
         return (
-          <div className="grid grid-cols-2 gap-2 mt-2 text-[0.95rem]">
-            <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
-            <button className={BUTTON_CLASSES} onClick={downloadLeafList}>Leaf list</button>
-            <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
-            <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
-            <button className={`${BUTTON_CLASSES} col-span-2`} onClick={downloadPDF}>PDF (vector)</button>
-            <div className="col-span-2 flex items-center justify-between">
-              <label className="text-slate-600">PNG scale (x)</label>
-              <input type="number" className={`${INPUT_CLASSES} w-24`} value={pngScale} min={1} step={1} onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))} />
+          <div className="space-y-4 mt-2 text-[0.95rem]">
+            <div className="space-y-3 border-b border-slate-200 pb-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Text exports</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
+                <button className={BUTTON_CLASSES} onClick={downloadLeafList}>Leaf list</button>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-500">
+                  <span>Current NEWICK</span>
+                  <button
+                    type="button"
+                    className="text-[0.75rem] font-semibold text-[#286699] hover:text-[#17476b]"
+                    onClick={copyNewickToClipboard}
+                  >
+                    {newickCopyState==="copied"?"Copied!":newickCopyState==="error"?"Copy failed":"Copy"}
+                  </button>
+                </div>
+                <textarea
+                  ref={newickTextareaRef}
+                  className={`${INPUT_CLASSES} w-full h-24 font-mono text-xs bg-white`}
+                  readOnly
+                  value={currentNewick}
+                />
+              </div>
             </div>
-            <label className="col-span-2 flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
-              <span className="text-sm font-medium">Italic tip labels</span>
-            </label>
+            <div className="space-y-3 pt-1">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Image exports</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
+                <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
+                <button className={`${BUTTON_CLASSES} col-span-2`} onClick={downloadPDF}>PDF (vector)</button>
+              </div>
+              <div className="flex items-center justify-between text-sm text-slate-600">
+                <span>PNG scale (x)</span>
+                <input type="number" className={`${INPUT_CLASSES} w-24`} value={pngScale} min={1} step={1} onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))} />
+              </div>
+              <label className="flex items-center gap-2 text-slate-600 text-sm">
+                <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
+                <span className="font-medium">Italic tip labels</span>
+              </label>
+            </div>
           </div>
         );
       default:
