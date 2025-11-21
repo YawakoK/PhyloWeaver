@@ -15,7 +15,7 @@ https://yawak.jp/PhyloWeaver/
   - Reroot trees
   - Flip subtrees
   - Add / delete leaves
-  - Edit tip labels / branch length
+  - Edit leaf labels / branch length 
 - **Two layout modes**
   - Phylogram (branch lengths)
   - Cladogram (equal branch lengths)
@@ -23,8 +23,8 @@ https://yawak.jp/PhyloWeaver/
   - Highlight nodes by taxon name
 - **Styling options**
   - Adjust branch width, colors, and other display settings
-  - Change leave name and color
-  - Chnage node size and color
+  - Change leave name, size, color and highlight
+  - Change node size and color
 - **Export options**
   - Export the current view as NEWICK file, tip list, and image (SVG/PDF/PNG).
 
