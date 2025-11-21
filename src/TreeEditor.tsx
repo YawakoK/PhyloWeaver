@@ -54,7 +54,6 @@ type LayoutSnapshot = {
   yExtent: [number, number];
 };
 
-const PANEL_CARD_CLASSES = "p-4 rounded-xl  bg-white/95 shadow-lg space-y-4";
 // const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
 const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
@@ -1975,19 +1974,26 @@ export default function TreeEditor(){
             </div>
             <div className="space-y-3 pt-1">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Image exports</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
-                <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
-                <button className={`${BUTTON_CLASSES} col-span-2`} onClick={downloadPDF}>PDF (vector)</button>
-              </div>
-              <div className="flex items-center justify-between text-sm text-slate-600">
-                <span>PNG scale (x)</span>
-                <input type="number" className={`${INPUT_CLASSES} w-24`} value={pngScale} min={1} step={1} onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))} />
-              </div>
               <label className="flex items-center gap-2 text-slate-600 text-sm">
                 <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
                 <span className="font-medium">Italic tip labels</span>
               </label>
+              <div className="grid grid-cols-2 gap-2 items-center">
+                <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
+                <label className="flex items-center justify-end gap-3 text-sm text-slate-600 text-right">
+                  <span className="font-medium">Scale (x)</span>
+                  <input
+                    type="number"
+                    className={`${INPUT_CLASSES} w-20`}
+                    value={pngScale}
+                    min={1}
+                    step={1}
+                    onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))}
+                  />
+                </label>
+                <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
+                <button className={BUTTON_CLASSES} onClick={downloadPDF}>PDF (vector)</button>
+              </div>
             </div>
           </div>
         );
@@ -2061,24 +2067,24 @@ export default function TreeEditor(){
 
       <div className="w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-6 overflow-x-auto items-start">
         <div className="flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]">
-          <div className="relative">
-            <div className="flex gap-3 mb-4">
+          <div className="relative rounded-3xl bg-white/95 shadow-xl border border-white/70 overflow-hidden">
+            <div className="grid grid-cols-2 sm:grid-cols-4 text-center bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
               {tabs.map(tab=>(
                 <button
                   key={tab.id}
                   onClick={()=>setActiveTab(tab.id)}
                   className={[
-                    "px-4 py-2 rounded-xl text-sm font-semibold shadow-md border transition-all duration-150",
+                    "w-full px-4 py-3 text-sm font-semibold transition-colors duration-150 border-b-2 -mb-px",
                     activeTab===tab.id
-                      ? "bg-[#3874a6] text-white border-[#3874a6] shadow-lg"
-                      : "bg-[#e4e4e4] text-[#286699] border border-transparent hover:border-[#286699]"
+                      ? "bg-white text-[#1f4870] border-[#3874a6] shadow-[inset_0_-2px_6px_rgba(0,0,0,0.08)]"
+                      : "text-[#4b6786] border-transparent hover:text-[#1f4870] hover:bg-white/60"
                   ].join(" ")}
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
-            <div className={`${PANEL_CARD_CLASSES}`}>
+            <div className="p-4 space-y-4">
               {renderTabContent()}
             </div>
           </div>
