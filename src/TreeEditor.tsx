@@ -506,10 +506,10 @@ export default function TreeEditor(){
   const [layout,setLayout]=useState<LayoutMode>("phylogram");
   const [edgeWidth,setEdgeWidth]=useState(1.5);
   const [leafLabelSize,setLeafLabelSize]=useState(25);
-  const [nodeLabelSize,setNodeLabelSize]=useState(11);
-  const [branchLabelSize,setBranchLabelSize]=useState(10);
+  const [nodeLabelSize,setNodeLabelSize]=useState(15);
+  const [branchLabelSize,setBranchLabelSize]=useState(15);
   const [branchLengthPrecision,setBranchLengthPrecision]=useState(3);
-  const [supportLabelSize,setSupportLabelSize]=useState(10);
+  const [supportLabelSize,setSupportLabelSize]=useState(15);
   const [branchLenOffsetX,setBranchLenOffsetX]=useState(0);
   const [branchLenOffsetY,setBranchLenOffsetY]=useState(-4);
   const [bootstrapOffsetX,setBootstrapOffsetX]=useState(0);
@@ -2318,7 +2318,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
                         <span>Text size</span>
-                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={supportLabelSize} onChange={(e)=>setSupportLabelSize(parseFloat(e.target.value)||10)} />
+                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={supportLabelSize} onChange={(e)=>setSupportLabelSize(parseFloat(e.target.value)||15)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span>Offset</span>
@@ -2723,9 +2723,6 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const childData = (target.d?.data ?? {}) as TreeNode;
                 const parentId = parentData.__id;
                 const childId = childData.__id;
-                const childKey = childId !== undefined ? nodeSelectionKey(childId) : null;
-                const childMultiSelected = childKey ? multiSelectionKeySet.has(childKey) : false;
-                const childSelectedBase = childId !== undefined && selection?.type==='node' && selection?.id===childId;
                 const linkKey = parentId !== undefined && childId !== undefined ? linkSelectionKey(parentId, childId) : null;
                 const linkMultiSelected = linkKey ? multiSelectionKeySet.has(linkKey) : false;
                 const linkSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
