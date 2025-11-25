@@ -65,11 +65,14 @@ const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005af
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
 const READABLE_FIT_SCALE = 0.85;
+const nodeSelectionKey = (id: number) => `node-${id}`;
+const linkSelectionKey = (parentId: number, childId: number) => `link-${parentId}-${childId}`;
 type Locale = "en" | "jp";
 const UI_TEXT: Record<Locale, Record<string, string>> = {
   en: {
     dataTab: "Data",
     selectionTab: "Selection",
+    multiSelectHint: "Hold Shift and click to select multiple items",
     renderingTab: "Rendering",
     exportTab: "Export",
     uploadNewick: "Upload NEWICK",
@@ -136,6 +139,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
   jp: {
     dataTab: "データ",
     selectionTab: "選択",
+    multiSelectHint: "Shiftを押しながらクリックで複数選択できます",
     renderingTab: "描画",
     exportTab: "エクスポート",
     uploadNewick: "NEWICKをアップロード",
@@ -944,6 +948,7 @@ export default function TreeEditor(){
 
   // Selection & context menu
   const [selection,setSelection]=useState<SelectionState | null>(null);
+  const [multiSelection,setMultiSelection]=useState<SelectionState[]>([]);
   const [menu,setMenu]=useState<ContextMenuState>({visible:false,left:0,top:0});
 
   const updateCladoOffset = useCallback((nodeId: number, nextOffset: number, options?: { skipHistory?: boolean })=>{
@@ -975,6 +980,23 @@ export default function TreeEditor(){
     const targetId = selection.type === 'link' ? selection.childId : selection.id;
     return targetId ? findById(tree, targetId) : null;
   },[selection, tree]);
+  const makeSelectionKey = useCallback((sel: SelectionState)=>{
+    return sel.type==='node' ? nodeSelectionKey(sel.id) : linkSelectionKey(sel.parentId, sel.childId);
+  },[]);
+  const multiSelectionKeySet = useMemo(()=> new Set(multiSelection.map(makeSelectionKey)),[multiSelection, makeSelectionKey]);
+  const applySingleSelection = useCallback((sel: SelectionState)=>{
+    setSelection(sel);
+    setMultiSelection([sel]);
+  },[]);
+  const toggleShiftSelection = useCallback((sel: SelectionState)=>{
+    const key = makeSelectionKey(sel);
+    setMultiSelection(prev=>{
+      const exists = prev.some(item=>makeSelectionKey(item)===key);
+      const next = exists ? prev.filter(item=>makeSelectionKey(item)!==key) : [...prev, sel];
+      setSelection(next.length ? next[next.length - 1] : null);
+      return next;
+    });
+  },[makeSelectionKey]);
 
   useEffect(()=>{
     if(selectedBranchNode && Number.isFinite(selectedBranchNode.length)){
@@ -1035,6 +1057,7 @@ export default function TreeEditor(){
 
   const clearSelectionState = useCallback(()=>{
     setSelection(null);
+    setMultiSelection([]);
     hideContextMenu();
   },[hideContextMenu]);
 
@@ -1473,7 +1496,13 @@ export default function TreeEditor(){
       return;
     }
     if(n.d.data.__id === undefined) return;
-    setSelection({type:'node', id:n.d.data.__id});
+    const sel = {type:'node', id:n.d.data.__id} as SelectionState;
+    if(e.shiftKey){
+      toggleShiftSelection(sel);
+      e.stopPropagation();
+      return;
+    }
+    applySingleSelection(sel);
     openMenuAt(e.clientX,e.clientY);
     e.stopPropagation();
   }
@@ -1482,16 +1511,30 @@ export default function TreeEditor(){
     const parentId=l.source.d.data.__id;
     const childId=l.target.d.data.__id;
     if(parentId === undefined || childId === undefined) return;
-    setSelection({type:'link', parentId, childId});
+    const sel = {type:'link', parentId, childId} as SelectionState;
+    if(e.shiftKey){
+      toggleShiftSelection(sel);
+      e.stopPropagation();
+      return;
+    }
+    applySingleSelection(sel);
     openMenuAt(e.clientX,e.clientY); e.stopPropagation();
   }
 
-  const applyToSelectedLeaf = (mutator: (node: TreeNode)=>void)=>{
-    if(selection?.type!=='node') return false;
-    const node = findById(tree, selection.id);
-    if(!node || node.children?.length) return false;
-    mutator(node);
-    commitTree(clone(tree), { preserveZoom: true });
+  const applyToSelectedLeaves = (mutator: (node: TreeNode)=>void)=>{
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return false;
+    const updated = clone(tree);
+    let changed=false;
+    targets.forEach(sel=>{
+      if(sel.type!=='node') return;
+      const node = findById(updated, sel.id);
+      if(!node || node.children?.length) return;
+      mutator(node);
+      changed=true;
+    });
+    if(!changed) return false;
+    commitTree(updated, { preserveZoom: true });
     return true;
   };
 
@@ -1522,7 +1565,7 @@ export default function TreeEditor(){
     if(selection.type==='node'){ const p=parentOf(tree, selection.id); if(!p){ alert('Cannot delete the root node'); return; }
       p.children=(p.children||[]).filter(c=>c.__id!==selection.id); if(!p.children?.length) delete p.children;
     } else { const p=findById(tree, selection.parentId); if(!p?.children) return; p.children=p.children.filter(c=>c.__id!==selection.childId); if(!p.children?.length) delete p.children; }
-    collapseUnaryInPlace(tree); setSelection(null); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
+    collapseUnaryInPlace(tree); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
   }
   function actionAddLeaf(){ if(!selection) return;
     if(selection.type==='link'){ const p=findById(tree, selection.parentId), c=findById(tree, selection.childId); if(!p||!c) return;
@@ -1562,13 +1605,13 @@ export default function TreeEditor(){
       const obj=findById(tree,selection.id); if(!obj) return;
       const r0=rerootAt(tree,obj); const r=collapseUnaryInPlace(r0); ensureIds(r);
       if(!obj.children?.length && obj.__id !== undefined) ladderizeTipBottom(r,obj.__id);
-      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMenu({...menu,visible:false});
+      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
     }
     else {
       const {parentId,childId}=selection; const r0=rerootOnEdge(tree,parentId,childId,0.5); const r=collapseUnaryInPlace(r0); ensureIds(r);
       const tip=findById(r,childId);
       if(tip && !tip.children?.length && tip.__id !== undefined) ladderizeTipBottom(r, tip.__id);
-      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMenu({...menu,visible:false});
+      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
     }
   }
   function actionRenameTip(nm: string){
@@ -1583,13 +1626,13 @@ export default function TreeEditor(){
     setMenu({...menu,visible:false});
   }
   function actionSetTipLabelBold(enabled: boolean){
-    applyToSelectedLeaf(node=>{
+    applyToSelectedLeaves(node=>{
       if(enabled) node.__labelBold = true;
       else delete node.__labelBold;
     });
   }
   function actionSetTipLabelFontSize(size: number | null){
-    applyToSelectedLeaf(node=>{
+    applyToSelectedLeaves(node=>{
       if(size && Number.isFinite(size)){
         node.__labelFontSize = Math.max(6, size);
       }else{
@@ -1598,7 +1641,6 @@ export default function TreeEditor(){
     });
   }
   function commitTipLabelSizeInput(value: string){
-    if(!selectedLeaf) return;
     const trimmed=value.trim();
     if(!trimmed){
       actionSetTipLabelFontSize(null);
@@ -1626,14 +1668,23 @@ export default function TreeEditor(){
   }
   function actionEditBranchWidth(vs: string, opts?: { keepMenu?: boolean }){
     const candidate = vs ?? branchWidthInput;
-    const id=selection?.type==='link'?selection.childId:selection?.id;
-    if(!id) return;
-    const t=findById(tree,id); if(!t) return;
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return;
     const trimmed=(candidate ?? "").trim();
+    const updated = clone(tree);
+    const applyToTargets = (fn: (node: TreeNode)=>void)=>{
+      targets.forEach(sel=>{
+        const id = sel.type==='link' ? sel.childId : sel.id;
+        if(id === undefined) return;
+        const target = findById(updated, id);
+        if(!target) return;
+        fn(target);
+      });
+    };
     if(!trimmed){
-      delete t.__edgeWidth;
+      applyToTargets(node=>{ delete node.__edgeWidth; });
       setBranchWidthInput(String(edgeWidth));
-      commitTree(clone(tree), { preserveZoom: true });
+      commitTree(updated, { preserveZoom: true });
       if(!opts?.keepMenu){
         setMenu({...menu,visible:false});
       }
@@ -1642,37 +1693,51 @@ export default function TreeEditor(){
     const v=parseFloat(trimmed);
     if(Number.isNaN(v) || v<=0){ alert('Enter a positive width (px)'); return; }
     const clamped=Math.max(0.25, Math.min(12, v));
-    t.__edgeWidth=clamped;
+    applyToTargets(node=>{ node.__edgeWidth = clamped; });
     setBranchWidthInput(String(clamped));
-    commitTree(clone(tree), { preserveZoom: true });
+    commitTree(updated, { preserveZoom: true });
     if(!opts?.keepMenu){
       setMenu({...menu,visible:false});
     }
   }
   function actionEditNodeSize(value: number | null, opts?: { keepMenu?: boolean }){
-    if(selection?.type!=='node') return;
-    const id=selection.id;
-    const target=findById(tree,id);
-    if(!target) return;
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return;
+    const updated = clone(tree);
+    const apply = (fn: (node: TreeNode)=>void)=>{
+      targets.forEach(sel=>{
+        if(sel.type!=='node') return;
+        const target=findById(updated, sel.id);
+        if(!target) return;
+        fn(target);
+      });
+    };
     if(value === null){
-      delete target.__nodeSize;
+      apply(node=>{ delete node.__nodeSize; });
       setNodeSizeInput("");
     }else{
       const clamped=Math.max(0, Math.min(40, value));
-      target.__nodeSize=clamped;
+      apply(node=>{ node.__nodeSize=clamped; });
       setNodeSizeInput(String(clamped));
     }
-    commitTree(clone(tree), { preserveZoom: true });
+    commitTree(updated, { preserveZoom: true });
     if(!opts?.keepMenu){
       setMenu({...menu,visible:false});
     }
   }
   function actionColorSelected(c: string){
-    if(!selection) return;
-    const id=selection.type==='node'?selection.id:selection.childId;
-    const t=findById(tree,id); if(!t) return;
-    if(selection.type==='link') t.__edgeColor=c; else t.__color=c;
-    commitTree(clone(tree), { preserveZoom: true });
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return;
+    const updated = clone(tree);
+    targets.forEach(sel=>{
+      const id = sel.type==='node' ? sel.id : sel.childId;
+      if(id === undefined) return;
+      const target = findById(updated, id);
+      if(!target) return;
+      if(sel.type==='link') target.__edgeColor = c;
+      else target.__color = c;
+    });
+    commitTree(updated, { preserveZoom: true });
   }
 
 
@@ -1711,8 +1776,12 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     const baseFill = circle.getAttribute('data-base-fill');
     if(baseFill) circle.setAttribute('fill', baseFill);
   });
-  const searchHighlights = group.querySelectorAll<SVGRectElement>('[data-search-highlight]');
-  searchHighlights.forEach(rect=>rect.remove());
+  const labelHighlights = group.querySelectorAll<SVGElement>('[data-label-highlight]');
+  labelHighlights.forEach(el=>{
+    el.removeAttribute('stroke');
+    el.removeAttribute('stroke-width');
+    el.removeAttribute('paint-order');
+  });
 }
   function buildStandaloneSVGBlobWithScaleBar(): Blob | null{
     const gNode=gRef.current; if(!gNode) return null;
@@ -1937,6 +2006,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
       case "selection":
         return (
           <div className="space-y-3 text-[0.95rem]">
+            <div className="text-sm text-slate-500">{t("multiSelectHint","Hold shift key and click to select multiple items")}</div>
             <div className="text-slate-600">{t("activeSelection","Active selection")}: <span className="font-mono text-slate-800">{selInfo}</span></div>
             <div className="grid grid-cols-2 gap-2">
               <button className={`${BUTTON_CLASSES} flex flex-row items-center justify-center gap-3 py-3`} onClick={actionReroot}>
@@ -2570,6 +2640,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 onClick={(e)=>{
                   e.stopPropagation();
                   setSelection(null);
+                  setMultiSelection([]);
                   setMenu({...menu,visible:false});
                   setSearchPopoverOpen(false);
                   applyAutoHorizontalScale();
@@ -2652,9 +2723,13 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const childData = (target.d?.data ?? {}) as TreeNode;
                 const parentId = parentData.__id;
                 const childId = childData.__id;
-                const childSelected = childId !== undefined && selection?.type==='node' && selection?.id===childId;
-                const isSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
-                const highlightActive = childSelected || isSelected;
+                const childKey = childId !== undefined ? nodeSelectionKey(childId) : null;
+                const childMultiSelected = childKey ? multiSelectionKeySet.has(childKey) : false;
+                const childSelectedBase = childId !== undefined && selection?.type==='node' && selection?.id===childId;
+                const linkKey = parentId !== undefined && childId !== undefined ? linkSelectionKey(parentId, childId) : null;
+                const linkMultiSelected = linkKey ? multiSelectionKeySet.has(linkKey) : false;
+                const linkSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
+                const highlightActive = linkSelected || linkMultiSelected;
                 const customColor = childData.__edgeColor;
                 const customWidth = typeof childData.__edgeWidth === 'number' && Number.isFinite(childData.__edgeWidth) ? childData.__edgeWidth : null;
                 const highlightColor = '#f0a608ff';
@@ -2666,9 +2741,9 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const branchLenValue = typeof childData.length === 'number' && Number.isFinite(childData.length) ? childData.length : 0;
                 const supportValue = childData.name;
                 const parentKey = parentId ?? `p-${idx}`;
-                const childKey = childId ?? `c-${idx}`;
+                const childKeyLabel = childId ?? `c-${idx}`;
                 return (
-                  <g key={`link-${parentKey}-${childKey}-${idx}`} className="cursor-pointer" onClick={(e)=>onClickLink(link,e)}>
+                  <g key={`link-${parentKey}-${childKeyLabel}-${idx}`} className="cursor-pointer" onClick={(e)=>onClickLink(link,e)}>
                     <path
                       d={`M${source.x},${source.y} V${target.y} H${target.x}`}
                       fill="none"
@@ -2737,7 +2812,9 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               {/* Nodes */}
               {nodes.map((n,i)=>{
                 const nodeId = n.d.data.__id;
-                const selected=nodeId !== undefined && selection?.type==='node' && selection?.id===nodeId;
+                const baseSelected=nodeId !== undefined && selection?.type==='node' && selection?.id===nodeId;
+                const multiSelected = nodeId !== undefined && multiSelectionKeySet.has(nodeSelectionKey(nodeId));
+                const selected = Boolean(baseSelected || multiSelected);
                 const isDisplayLeaf=!n.d.children?.length;
                 const collapsedTipCount = typeof n.d.data.__collapsedTipCount === "number" ? n.d.data.__collapsedTipCount : undefined;
                 const isCollapsedLeaf = Boolean(isDisplayLeaf && n.d.data.__isCollapsedPlaceholder);
@@ -2765,24 +2842,24 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const displayLabelText = isCollapsedLeaf ? collapsedLabelText : leafLabelText;
                 const isSearchHit = nodeId !== undefined && searchSet.has(nodeId);
                 const isActiveSearchTarget = activeSearchNodeId !== null && nodeId === activeSearchNodeId;
-                const highlightPaddingX = 8;
-                const highlightPaddingY = 4;
                 const labelBaselineY = leafLabelOffsetY;
                 const shouldItalicize = italic && (isSimpleLeaf || isCollapsedLeaf);
                 const customLabelFont = isSimpleLeaf && typeof n.d.data.__labelFontSize === "number" && Number.isFinite(n.d.data.__labelFontSize) ? Math.max(6, n.d.data.__labelFontSize as number) : null;
                 const labelFontSize = customLabelFont ?? leafLabelSize;
                 const labelBold = isSimpleLeaf && Boolean(n.d.data.__labelBold);
-                const highlightable = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
-                const needsLabelMetrics = (isSimpleLeaf || isCollapsedLeaf) && highlightable;
-                const estimatedLabelWidth = needsLabelMetrics ? measureLabelWidth(displayLabelText, labelFontSize, shouldItalicize) : 0;
-                const highlightWidth = highlightable ? Math.max(estimatedLabelWidth + highlightPaddingX * 2, labelFontSize * 2) : 0;
-                const highlightHeight = highlightable ? labelFontSize + highlightPaddingY * 2 : 0;
-                const highlightRadius = 0;
-                const highlightX = highlightable ? textStartX - highlightPaddingX : 0;
-                const highlightY = highlightable ? labelBaselineY - highlightHeight / 2 : 0;
+                const selectedLeaf = selected && (isSimpleLeaf || isCollapsedLeaf);
+                const searchHighlight = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
+                const highlightMode = isActiveSearchTarget
+                  ? "search-active"
+                  : (searchHighlight ? "search" : (selectedLeaf ? "selection" : null));
+                const showHighlight = highlightMode !== null;
+                const highlightStroke = highlightMode === "selection"
+                  ? "#d97706"
+                  : (highlightMode === "search-active" ? "#f59e0b" : "#f4c84a");
+                const highlightStrokeWidth = highlightMode === "selection" ? 2.2 : (highlightMode === "search-active" ? 2 : 1.6);
                 const labelClasses = [
                   "select-none",
-                  labelBold ? "font-bold" : (highlightable ? "font-semibold" : ""),
+                  labelBold ? "font-bold" : (showHighlight ? "font-semibold" : ""),
                   shouldItalicize ? "italic" : "",
                   isCollapsedLeaf ? "font-medium" : ""
                 ].filter(Boolean).join(" ");
@@ -2823,21 +2900,6 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                         pointerEvents="none"
                       />
                     )}
-                    {highlightable && (
-                      <rect
-                        x={highlightX}
-                        y={highlightY}
-                        width={highlightWidth}
-                        height={highlightHeight}
-                        rx={highlightRadius}
-                        ry={highlightRadius}
-                        fill={isActiveSearchTarget ? "#fde047" : "#fef08a"}
-                        stroke={isActiveSearchTarget ? "#f59e0b" : "#f4c84a"}
-                        strokeWidth={isActiveSearchTarget ? 1.5 : 1}
-                        pointerEvents="none"
-                        data-search-highlight="true"
-                      />
-                    )}
                     {isSimpleLeaf && (
                       <text
                         x={textStartX}
@@ -2847,6 +2909,11 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                         className={labelClasses}
                         dominantBaseline="middle"
                         alignmentBaseline="middle"
+                        stroke={showHighlight ? highlightStroke : undefined}
+                        strokeWidth={showHighlight ? highlightStrokeWidth : undefined}
+                        strokeLinejoin={showHighlight ? "round" : undefined}
+                        paintOrder={showHighlight ? "stroke fill" : undefined}
+                        data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -2861,6 +2928,11 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                         className={labelClasses}
                         dominantBaseline="middle"
                         alignmentBaseline="middle"
+                        stroke={showHighlight ? highlightStroke : undefined}
+                        strokeWidth={showHighlight ? highlightStrokeWidth : undefined}
+                        strokeLinejoin={showHighlight ? "round" : undefined}
+                        paintOrder={showHighlight ? "stroke fill" : undefined}
+                        data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
