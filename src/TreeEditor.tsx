@@ -18,9 +18,8 @@ type TreeNode = {
   __color?: string;
   __nodeSize?: number;
   __labelBold?: boolean;
-  __labelMarkerColor?: string;
-  __labelMarkerHeight?: number;
   __labelFontSize?: number;
+  __cladoOffset?: number;
   __collapsed?: boolean;
   __collapsedTipCount?: number;
   __isCollapsedPlaceholder?: boolean;
@@ -188,10 +187,11 @@ function parseNewick(newick: string): TreeNode {
   if (newick[i] === ";") i++;
   return tree;
 }
-function toNewick(node: TreeNode): string {
+function toNewick(node: TreeNode, options?: { includeLengths?: boolean }): string {
+  const includeLengths = options?.includeLengths !== false;
   function rec(n: TreeNode): string {
     const name = n.name ? n.name.replace(/[\s\t\n\r]/g, "_") : "";
-    const len = typeof n.length === "number" ? `:${+n.length.toFixed(6)}` : "";
+    const len = includeLengths && typeof n.length === "number" ? `:${+n.length.toFixed(6)}` : "";
     if (n.children?.length) return `(${n.children.map(rec).join(",")})${name}${len}`;
     return `${name || "Unnamed"}${len}`;
   }
@@ -360,6 +360,8 @@ export default function TreeEditor(){
   const [historyStack, setHistoryStack] = useState<TreeNode[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const historyInitRef = useRef(false);
+  const latestTreeRef = useRef(tree);
+  useEffect(()=>{ latestTreeRef.current = tree; },[tree]);
   const [layout,setLayout]=useState<LayoutMode>("phylogram");
   const [edgeWidth,setEdgeWidth]=useState(1.5);
   const [leafLabelSize,setLeafLabelSize]=useState(25);
@@ -381,8 +383,10 @@ export default function TreeEditor(){
   const [showBranchLen,setShowBranchLen]=useState(false);
   const [showBootstrap,setShowBootstrap]=useState(false);
   const [showNodeDots,setShowNodeDots]=useState(false);
+  const [branchEditMode,setBranchEditMode]=useState(false);
   const [leafNodeDotSize,setLeafNodeDotSize]=useState(2.5);
   const [internalNodeDotSize,setInternalNodeDotSize]=useState(3.5);
+  const showNodeDotsEffective = showNodeDots || branchEditMode;
   const [search,setSearch]=useState("");
   const [searchFocusIndex,setSearchFocusIndex]=useState(0);
   const [zoomK,setZoomK]=useState(1);
@@ -390,10 +394,7 @@ export default function TreeEditor(){
   const [branchWidthInput,setBranchWidthInput]=useState(()=>String(1.5));
   const [tipNameInput,setTipNameInput]=useState("");
   const [tipLabelSizeInput,setTipLabelSizeInput]=useState("");
-  const [tipMarkerColor,setTipMarkerColor]=useState("#fde047");
-  const [tipMarkerHeight,setTipMarkerHeight]=useState(0.5);
-  const [tipMarkerEnabled,setTipMarkerEnabled]=useState(false);
-  const [tipStylingExpanded,setTipStylingExpanded]=useState(false);
+  const branchEditActive = branchEditMode;
   const [tipLabelBold,setTipLabelBold]=useState(false);
   const [nodeSizeInput,setNodeSizeInput]=useState("");
   const [useRegex,setUseRegex]=useState(false);
@@ -407,8 +408,10 @@ export default function TreeEditor(){
   const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
   const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
+  const cladogramDomainRef = useRef(1);
+  const suppressClickRef = useRef(false);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
-  const currentNewick = useMemo(()=>toNewick(tree),[tree]);
+  const currentNewick = useMemo(()=>toNewick(tree, { includeLengths: layout!=="cladogram" }),[tree, layout]);
   const newickStats = useMemo(()=>{
     let internalNodes=0;
     let branchCount=0;
@@ -693,6 +696,12 @@ export default function TreeEditor(){
     }
   },[historyIndex]);
 
+  const mutateTree = useCallback((mutator: (draft: TreeNode)=>void, options?: { skipHistory?: boolean })=>{
+    const draft = clone(latestTreeRef.current);
+    mutator(draft);
+    commitTree(draft, { preserveZoom: true, skipHistory: options?.skipHistory ?? false });
+  },[commitTree]);
+
 
   // Layout computation
   const { nodes, links, totalLength, xExtent, yExtent } = useMemo<LayoutSnapshot>(()=>{
@@ -707,9 +716,19 @@ export default function TreeEditor(){
 
     let maxDepth=0; root.each(d=>{ if(!d.children) maxDepth=Math.max(maxDepth,d.depth); });
     (function assignX(d: HierarchyNodeWithLayout){
-      if(!d.parent) d._x=0;
-      else if(layout==='phylogram') d._x = (d.parent._x ?? 0) + (Number.isFinite(d.data.length)?Number(d.data.length):0);
-      else d._x = (!d.children?.length)? maxDepth : d.depth;
+      let baseX = 0;
+      if(!d.parent) baseX = 0;
+      else if(layout==='phylogram'){
+        baseX = (d.parent._x ?? 0) + (Number.isFinite(d.data.length)?Number(d.data.length):0);
+      }else{
+        baseX = d.children?.length ? d.depth : maxDepth;
+      }
+      if(layout==='cladogram'){
+        const offset = typeof d.data.__cladoOffset === "number" && Number.isFinite(d.data.__cladoOffset) ? d.data.__cladoOffset as number : 0;
+        d._x = baseX + offset;
+      }else{
+        d._x = baseX;
+      }
       d.children?.forEach(child=>assignX(child as HierarchyNodeWithLayout));
     })(root);
 
@@ -744,6 +763,12 @@ export default function TreeEditor(){
     const yExtent:[number,number]=[Math.min(...ys,0), Math.max(...ys,0)];
     return { nodes, links, totalLength: xMax, xExtent, yExtent };
   },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, leafLabelOffsetX, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
+
+  useEffect(()=>{
+    if(layout === "cladogram"){
+      cladogramDomainRef.current = Math.max(1, totalLength || 1);
+    }
+  },[layout, totalLength]);
 
   /** ---------- ScaleBar: HTML overlay (onscreen) ---------- */
   function formatScaleUnits(value: number){
@@ -781,6 +806,30 @@ export default function TreeEditor(){
   // Selection & context menu
   const [selection,setSelection]=useState<SelectionState | null>(null);
   const [menu,setMenu]=useState<ContextMenuState>({visible:false,left:0,top:0});
+
+  const updateCladoOffset = useCallback((nodeId: number, nextOffset: number, options?: { skipHistory?: boolean })=>{
+    const domain = Math.max(1, cladogramDomainRef.current);
+    const limited = Math.max(-domain * 2, Math.min(domain * 2, nextOffset));
+    mutateTree(root=>{
+      const target = findById(root, nodeId);
+      if(!target) return;
+      if(Math.abs(limited) < 1e-4){
+        delete target.__cladoOffset;
+      }else{
+        target.__cladoOffset = limited;
+      }
+    }, { skipHistory: options?.skipHistory ?? false });
+  },[mutateTree]);
+  const updateBranchLengthValue = useCallback((nodeId: number, nextLength: number, options?: { skipHistory?: boolean })=>{
+    mutateTree(root=>{
+      const target = findById(root, nodeId);
+      if(!target) return;
+      const parent = parentOf(root, nodeId);
+      if(!parent) return;
+      const safeLength = Math.max(0, Number.isFinite(nextLength) ? nextLength : 0);
+      target.length = safeLength;
+    }, { skipHistory: options?.skipHistory ?? false });
+  },[mutateTree]);
 
   const selectedBranchNode = useMemo<TreeNode | null>(()=>{
     if(!selection) return null;
@@ -869,18 +918,21 @@ export default function TreeEditor(){
     const svg=d3.select<SVGSVGElement, unknown>(svgEl);
     const g=d3.select<SVGGElement, unknown>(gEl);
     const onZoom=(ev: d3.D3ZoomEvent<SVGSVGElement, unknown>)=>{
+      if(ev.sourceEvent && branchEditMode) return;
       if(ev.sourceEvent) userAdjustedZoomRef.current = true;
       g.attr("transform", `translate(${ev.transform.x + baseTranslateX},${ev.transform.y + baseTranslateY}) scale(${ev.transform.k})`);
       zoomTransformRef.current = ev.transform;
       setZoomK(ev.transform.k||1);
     };
-    const zoom=d3.zoom<SVGSVGElement, unknown>().on("zoom", onZoom);
+    const zoom=d3.zoom<SVGSVGElement, unknown>()
+      .filter((ev)=>!branchEditMode && (!ev.button || ev.button===0))
+      .on("zoom", onZoom);
     zoomRef.current=zoom;
     svg.call(zoom);
     return ()=>{
       svg.on(".zoom", null);
     };
-  },[baseTranslateX, baseTranslateY]);
+  },[baseTranslateX, baseTranslateY, branchEditMode]);
 
   // Observe right pane size (used for manual resets)
 
@@ -1181,19 +1233,9 @@ export default function TreeEditor(){
     if(selectedLeaf){
       setTipLabelBold(Boolean(selectedLeaf.__labelBold));
       setTipLabelSizeInput(selectedLeaf.__labelFontSize !== undefined ? String(selectedLeaf.__labelFontSize) : "");
-      const markerColor = typeof selectedLeaf.__labelMarkerColor === "string" ? selectedLeaf.__labelMarkerColor : "#fde047";
-      setTipMarkerColor(markerColor);
-      const markerHeight = typeof selectedLeaf.__labelMarkerHeight === "number" && Number.isFinite(selectedLeaf.__labelMarkerHeight) ? selectedLeaf.__labelMarkerHeight : 0.5;
-      setTipMarkerHeight(markerHeight);
-      setTipMarkerEnabled(Boolean(selectedLeaf.__labelMarkerColor));
-      setTipStylingExpanded(true);
     }else{
       setTipLabelBold(false);
       setTipLabelSizeInput("");
-      setTipMarkerColor("#fde047");
-      setTipMarkerHeight(0.5);
-      setTipMarkerEnabled(false);
-      setTipStylingExpanded(false);
     }
   },[selectedLeaf]);
 
@@ -1238,7 +1280,49 @@ export default function TreeEditor(){
     const pane=rightPaneRef.current; if(!pane) return;
     const r=pane.getBoundingClientRect(); setMenu({visible:true,left:cx - r.left, top:cy - r.top});
   }
+  const handleNodeMouseDown = useCallback((n: PositionedNode, e: React.MouseEvent<SVGGElement, MouseEvent>)=>{
+    if(!branchEditMode) return;
+    if(e.button !== 0) return;
+    const nodeId = n.d.data.__id;
+    if(nodeId === undefined) return;
+    if(layout==='phylogram' && !n.d.parent) return;
+    const treeNode = findById(latestTreeRef.current, nodeId);
+    if(!treeNode) return;
+    e.preventDefault();
+    e.stopPropagation();
+      const startOffset = typeof treeNode.__cladoOffset === "number" && Number.isFinite(treeNode.__cladoOffset) ? (treeNode.__cladoOffset as number) : 0;
+    const startLength = Number.isFinite(treeNode.length) ? Number(treeNode.length) : 0;
+    const domain = layout==='cladogram' ? Math.max(1e-6, cladogramDomainRef.current) : Math.max(1e-6, totalLength || 1);
+    const info = { nodeId, startX: e.clientX, startOffset, startLength, domain, hasMoved:false };
+    const handleMove = (ev: MouseEvent)=>{
+      const dx = ev.clientX - info.startX;
+      if(!info.hasMoved && Math.abs(dx) < 2) return;
+      info.hasMoved = true;
+      suppressClickRef.current = true;
+      const delta = (dx / Math.max(1, xScaleWidth)) * info.domain;
+      if(layout==='cladogram'){
+        updateCladoOffset(info.nodeId, info.startOffset + delta, { skipHistory: true });
+      }else{
+        const nextLength = info.startLength + delta;
+        updateBranchLengthValue(info.nodeId, Math.max(0, nextLength), { skipHistory: true });
+      }
+    };
+    const handleUp = ()=>{
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      if(info.hasMoved){
+        commitTree(clone(latestTreeRef.current), { preserveZoom: true });
+      }
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  },[branchEditMode, layout, totalLength, xScaleWidth, updateCladoOffset, updateBranchLengthValue, commitTree]);
+
   function onClickNode(n: PositionedNode, e: React.MouseEvent<SVGGElement, MouseEvent>){
+    if(suppressClickRef.current){
+      suppressClickRef.current=false;
+      return;
+    }
     if(n.d.data.__id === undefined) return;
     setSelection({type:'node', id:n.d.data.__id});
     openMenuAt(e.clientX,e.clientY);
@@ -1361,38 +1445,6 @@ export default function TreeEditor(){
         node.__labelFontSize = Math.max(6, size);
       }else{
         delete node.__labelFontSize;
-      }
-    });
-  }
-  function actionSetTipMarkerEnabled(enabled: boolean, color?: string, height?: number){
-    applyToSelectedLeaf(node=>{
-      if(!enabled){
-        delete node.__labelMarkerColor;
-        delete node.__labelMarkerHeight;
-        return;
-      }
-      node.__labelMarkerColor = color ?? node.__labelMarkerColor ?? "#fde047";
-      if(typeof height === "number" && Number.isFinite(height)){
-        node.__labelMarkerHeight = Math.max(0.01, Math.min(1.5, height));
-      }else if(typeof node.__labelMarkerHeight !== "number"){
-        node.__labelMarkerHeight = 0.5;
-      }
-    });
-  }
-  function actionSetTipMarkerColor(color: string){
-    applyToSelectedLeaf(node=>{
-      if(color){
-        node.__labelMarkerColor = color;
-        node.__labelMarkerHeight ??= 0.5;
-      }else{
-        delete node.__labelMarkerColor;
-      }
-    });
-  }
-  function actionSetTipMarkerHeight(height: number){
-    applyToSelectedLeaf(node=>{
-      if(Number.isFinite(height)){
-        node.__labelMarkerHeight = Math.max(0.01, Math.min(1.5, height));
       }
     });
   }
@@ -1564,7 +1616,14 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
   }
 
   // ---------- Downloads ----------
-  function downloadNewick(){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([toNewick(tree)],{type:'text/plain'})); a.download='edited_tree.nwk'; a.click(); }
+  function downloadNewick(){
+    const includeLengths = layout!=="cladogram";
+    const payload = toNewick(tree, { includeLengths });
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([payload],{type:'text/plain'}));
+    a.download='edited_tree.nwk';
+    a.click();
+  }
   function downloadLeafList(){
     const leaves=collectTips(tree).map(t=>t.name||'Unnamed').join('\n');
     const a=document.createElement('a');
@@ -1768,7 +1827,17 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               </div>
               {selection?.type==='node' && (
                 <div className="col-span-2 space-y-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                    <label className="flex items-center gap-1 text-xs text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={showNodeDots}
+                        onChange={(e)=>setShowNodeDots(e.target.checked)}
+                      />
+                      <span>Show nodes</span>
+                    </label>
+                  </div>
                   <input
                     type="number"
                     min={0}
@@ -1795,21 +1864,11 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionRenameTip(e.currentTarget.value); }} />
               </div>
               {selectedLeaf && (
-                <div className="col-span-2 rounded-xl border border-slate-200 bg-white/80 shadow-sm overflow-hidden mt-3">
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-700"
-                    onClick={()=>setTipStylingExpanded(v=>!v)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="text-lg leading-none">{tipStylingExpanded ? "▾" : "▸"}</span>
-                      <span>Tip styling</span>
-                    </span>
-                    <span className="text-xs text-slate-500">{tipStylingExpanded ? "Hide" : "Show"}</span>
-                  </button>
-                  {tipStylingExpanded && (
-                    <div className="space-y-3 text-sm text-slate-600 px-4 py-4 border-t border-slate-100">
-                      <label className="flex items-center gap-2 text-slate-700">
+                <div className="col-span-2 space-y-1 mt-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Leaf label size</span>
+                      <label className="flex items-center gap-1 text-xs text-slate-500">
                         <input
                           type="checkbox"
                           checked={tipLabelBold}
@@ -1819,90 +1878,34 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                             actionSetTipLabelBold(next);
                           }}
                         />
-                        <span>Bold label</span>
+                        <span>Bold</span>
                       </label>
-                      <div className="space-y-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Label size (px)</span>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            className={`${INPUT_CLASSES} flex-1`}
-                            min={6}
-                            step={1}
-                            placeholder="Default"
-                            value={tipLabelSizeInput}
-                            onChange={(e)=>{
-                              setTipLabelSizeInput(e.currentTarget.value);
-                              commitTipLabelSizeInput(e.currentTarget.value);
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className={`${SECONDARY_BUTTON_CLASSES} whitespace-nowrap`}
-                            onClick={()=>{
-                              setTipLabelSizeInput("");
-                              actionSetTipLabelFontSize(null);
-                            }}
-                          >
-                            Reset
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-2 text-slate-700 font-medium">
-                          <input
-                            type="checkbox"
-                            checked={tipMarkerEnabled}
-                            onChange={(e)=>{
-                              const next=e.target.checked;
-                              setTipMarkerEnabled(next);
-                              actionSetTipMarkerEnabled(next, tipMarkerColor, tipMarkerHeight);
-                            }}
-                          />
-                          <span>Marker highlight</span>
-                        </label>
-                        {tipMarkerEnabled && (
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                              <span className="text-xs text-slate-500">Color</span>
-                              <input
-                                type="color"
-                                className="w-full h-10 rounded-lg border border-slate-200 bg-white"
-                                value={tipMarkerColor}
-                                onChange={(e)=>{
-                                  const value=e.target.value;
-                                  setTipMarkerColor(value);
-                                  actionSetTipMarkerColor(value);
-                                }}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <span className="text-xs text-slate-500">Height (% of baseline)</span>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  className={`${INPUT_CLASSES} w-full`}
-                                  min={1}
-                                  max={150}
-                                  step={1}
-                                  value={Math.round(tipMarkerHeight * 100)}
-                                  onChange={(e)=>{
-                                    const parsed=parseFloat(e.target.value);
-                                    if(Number.isNaN(parsed)) return;
-                                    const clamped=Math.max(1, Math.min(150, parsed));
-                                    const ratio=clamped / 100;
-                                    setTipMarkerHeight(ratio);
-                                    actionSetTipMarkerHeight(ratio);
-                                  }}
-                                />
-                                <span className="text-xs text-slate-500 whitespace-nowrap">above baseline</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        className={`${INPUT_CLASSES} flex-1`}
+                        min={6}
+                        step={1}
+                        placeholder="Default"
+                        value={tipLabelSizeInput}
+                        onChange={(e)=>{
+                          setTipLabelSizeInput(e.currentTarget.value);
+                          commitTipLabelSizeInput(e.currentTarget.value);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className={`${SECONDARY_BUTTON_CLASSES} whitespace-nowrap`}
+                        onClick={()=>{
+                          setTipLabelSizeInput("");
+                          actionSetTipLabelFontSize(null);
+                        }}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -2361,16 +2364,18 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               <button
                 className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
                 disabled={!canUndo}
+                aria-label="Undo"
                 onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
               >
-                Undo
+                ↺
               </button>
               <button
                 className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
                 disabled={!canRedo}
+                aria-label="Redo"
                 onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
               >
-                Redo
+                ↻
               </button>
               <button
                 type="button"
@@ -2379,6 +2384,15 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 aria-label="Search leaves"
               >
                 <IconSearch />
+              </button>
+              <button
+                className={`${SECONDARY_BUTTON_CLASSES} text-base`}
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  fitToViewport();
+                }}
+              >
+                Fit
               </button>
               <button
                 className={`${BUTTON_CLASSES} text-base`}
@@ -2391,7 +2405,16 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   requestAnimationFrame(()=>autoAdjustVerticalSpacing());
                 }}
               >
-                Reset view
+                Reset
+              </button>
+              <button
+                className={`${branchEditMode ? BUTTON_CLASSES : SECONDARY_BUTTON_CLASSES} text-base`}
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  setBranchEditMode(v=>!v);
+                }}
+              >
+                {branchEditMode ? "Drag nodes mode: ON" : "Drag nodes mode: OFF"}
               </button>
               {searchPopoverOpen && (
                 <div className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
@@ -2555,8 +2578,12 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   : null;
                 const r = customRadius ?? defaultRadius;
                 const baseCircleFill = nodeColor || (isDisplayLeaf ? '#111827' : '#374151');
-                const circleStrokeColor = selected ? '#f0a608ff' : 'transparent';
-                const circleStrokeWidth = selected ? Math.max(1.2, r * 0.75) : 0;
+                const circleStrokeColor = selected
+                  ? '#fbbf24'
+                  : (branchEditActive ? '#fb923c' : 'transparent');
+                const circleStrokeWidth = selected
+                  ? Math.max(1.2, r * 0.75)
+                  : (branchEditActive ? Math.max(1, r * 0.35) : 0);
                 const collapsedMetrics = isCollapsedLeaf ? getCollapsedTriangleMetrics(collapsedTipCount) : null;
                 const collapsedWidth = collapsedMetrics?.width ?? 0;
                 const textStartX = collapsedWidth + labelPadding;
@@ -2574,24 +2601,14 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const customLabelFont = isSimpleLeaf && typeof n.d.data.__labelFontSize === "number" && Number.isFinite(n.d.data.__labelFontSize) ? Math.max(6, n.d.data.__labelFontSize as number) : null;
                 const labelFontSize = customLabelFont ?? leafLabelSize;
                 const labelBold = isSimpleLeaf && Boolean(n.d.data.__labelBold);
-                const markerColor = isSimpleLeaf && typeof n.d.data.__labelMarkerColor === "string" ? n.d.data.__labelMarkerColor : null;
-                const markerHeightMultiplier = isSimpleLeaf && typeof n.d.data.__labelMarkerHeight === "number" && Number.isFinite(n.d.data.__labelMarkerHeight)
-                  ? Math.max(0.1, n.d.data.__labelMarkerHeight as number)
-                  : null;
                 const highlightable = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
-                const needsLabelMetrics = (isSimpleLeaf || isCollapsedLeaf) && (highlightable || (markerColor && markerHeightMultiplier));
+                const needsLabelMetrics = (isSimpleLeaf || isCollapsedLeaf) && highlightable;
                 const estimatedLabelWidth = needsLabelMetrics ? measureLabelWidth(displayLabelText, labelFontSize, shouldItalicize) : 0;
                 const highlightWidth = highlightable ? Math.max(estimatedLabelWidth + highlightPaddingX * 2, labelFontSize * 2) : 0;
                 const highlightHeight = highlightable ? labelFontSize + highlightPaddingY * 2 : 0;
                 const highlightRadius = 0;
                 const highlightX = highlightable ? textStartX - highlightPaddingX : 0;
                 const highlightY = highlightable ? labelBaselineY - highlightHeight / 2 : 0;
-                const markerHeightPx = markerColor && markerHeightMultiplier ? labelFontSize * markerHeightMultiplier : null;
-                const markerWidth = markerColor && markerHeightPx ? Math.max(estimatedLabelWidth + highlightPaddingX * 2, labelFontSize * 2) : null;
-                const markerRadius = 0;
-                const markerX = markerWidth ? textStartX - highlightPaddingX : null;
-                const markerBaselineY = labelBaselineY + labelFontSize * 0.35;
-                const markerY = markerHeightPx ? markerBaselineY - markerHeightPx : null;
                 const labelClasses = [
                   "select-none",
                   labelBold ? "font-bold" : (highlightable ? "font-semibold" : ""),
@@ -2606,14 +2623,20 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   : (isSimpleLeaf ? baseLeafFill : '#374151');
                 const collapsedHalfHeight = collapsedMetrics ? collapsedMetrics.height/2 : 0;
                 return (
-                  <g key={i} transform={`translate(${n.x},${n.y})`} className="cursor-pointer" onClick={(e)=>onClickNode(n,e)}>
+                  <g
+                    key={i}
+                    transform={`translate(${n.x},${n.y})`}
+                    className="cursor-pointer"
+                    onClick={(e)=>onClickNode(n,e)}
+                    onMouseDown={(e)=>handleNodeMouseDown(n,e)}
+                  >
                     {isCollapsedLeaf && (
                       <title>{`Collapsed subtree (${collapsedTipCount ?? 0} leaf${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
                     )}
-                    {showNodeDots && (
+                    {showNodeDotsEffective && (
                       <circle
-                        r={r}
-                        fill={baseCircleFill}
+                        r={branchEditActive ? Math.max(r + 1.5, isDisplayLeaf ? 4 : 3) : r}
+                        fill={branchEditActive ? (isDisplayLeaf ? "#0f172a" : "#1f2937") : baseCircleFill}
                         stroke={circleStrokeColor}
                         strokeWidth={circleStrokeWidth}
                         data-base-fill={baseCircleFill}
@@ -2626,19 +2649,6 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                         fillOpacity={0.18}
                         stroke={collapsedStrokeColor}
                         strokeWidth={selected ? 2.4 : 1.2}
-                        pointerEvents="none"
-                      />
-                    )}
-                    {markerColor && markerWidth && markerHeightPx && markerX !== null && markerY !== null && (
-                      <rect
-                        x={markerX}
-                        y={markerY}
-                        width={markerWidth}
-                        height={markerHeightPx}
-                        rx={0}
-                        ry={0}
-                        fill={markerColor}
-                        fillOpacity={0.5}
                         pointerEvents="none"
                       />
                     )}
