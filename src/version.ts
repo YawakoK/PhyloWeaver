@@ -1,3 +1,3 @@
 // src/version.ts
 
-export const APP_VERSION = "v1.1";
+export const APP_VERSION = "v1.2";

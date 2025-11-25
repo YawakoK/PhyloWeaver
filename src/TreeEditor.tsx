@@ -17,6 +17,9 @@ type TreeNode = {
   __edgeWidth?: number;
   __color?: string;
   __nodeSize?: number;
+  __labelBold?: boolean;
+  __labelFontSize?: number;
+  __cladoOffset?: number;
   __collapsed?: boolean;
   __collapsedTipCount?: number;
   __isCollapsedPlaceholder?: boolean;
@@ -54,7 +57,6 @@ type LayoutSnapshot = {
   yExtent: [number, number];
 };
 
-const PANEL_CARD_CLASSES = "p-4 rounded-xl  bg-white/95 shadow-lg space-y-4";
 // const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
 const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
@@ -63,6 +65,145 @@ const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005af
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
 const READABLE_FIT_SCALE = 0.85;
+const nodeSelectionKey = (id: number) => `node-${id}`;
+const linkSelectionKey = (parentId: number, childId: number) => `link-${parentId}-${childId}`;
+type Locale = "en" | "jp";
+const UI_TEXT: Record<Locale, Record<string, string>> = {
+  en: {
+    dataTab: "Data",
+    selectionTab: "Selection",
+    multiSelectHint: "Hold Shift and click to select multiple items",
+    renderingTab: "Rendering",
+    exportTab: "Export",
+    uploadNewick: "Upload NEWICK",
+    loadExample: "Load example",
+    uploadHelper: "Uploaded text appears below.",
+    applyNewick: "Apply NEWICK",
+    statsTitle: "Current tree stats",
+    tips: "Leaves",
+    internalNodes: "Internal nodes",
+    branches: "Branches",
+    maxDepth: "Max depth",
+    totalLength: "Total branch length",
+    layoutPreset: "Layout preset",
+    layoutLabel: "Layout",
+    edgeWidth: "Edge width",
+    verticalSpacing: "Vertical spacing",
+    horizontalScale: "Horizontal scale",
+    showSection: "Show",
+    internalNodeLabelsSection: "Internal node labels",
+    branchLengthsSection: "Branch lengths",
+    supportValues: "Support values",
+    nodeDots: "Node dots",
+    textSize: "Text size",
+    offset: "Offset",
+    leafOffset: "Leaf offset",
+    phylogram: "Phylogram",
+    cladogram: "Cladogram",
+    activeSelection: "Active selection",
+    reroot: "Reroot",
+    flip: "Flip",
+    addLeaf: "Add leaf",
+    delete: "Delete",
+    edgeLabelColor: "Edge / label color",
+    lengthLabel: "Length",
+    widthLabel: "Width",
+    nodeSize: "Node size",
+    showNodes: "Show nodes",
+    nameLabel: "Name",
+    leafLabelSize: "Leaf label size",
+    bold: "Bold",
+    reset: "Reset",
+    textExports: "Text exports",
+    leafList: "Leaf list",
+    currentNewick: "NEWICK",
+    copy: "Copy",
+    copied: "Copied!",
+    copyFailed: "Copy failed",
+    imageExports: "Image exports",
+    italicTips: "Italic leaf labels",
+    scaleLabel: "Scale (x)",
+    fitView: "Fit view",
+    resetView: "Reset view",
+    dragNodesOn: "Drag nodes mode: ON",
+    dragNodesOff: "Drag nodes mode: OFF",
+    searchLeaves: "Search leaves",
+    clear: "Clear",
+    close: "Close",
+    headerTagline: "Interactive editor for phylogenies",
+    png: "PNG",
+    svg: "SVG",
+    pdfVector: "PDF (vector)",
+    tipStyling: "Tip styling"
+  },
+  jp: {
+    dataTab: "データ",
+    selectionTab: "選択",
+    multiSelectHint: "Shiftを押しながらクリックで複数選択できます",
+    renderingTab: "描画",
+    exportTab: "エクスポート",
+    uploadNewick: "NEWICKをアップロード",
+    loadExample: "例を読み込む",
+    uploadHelper: "読み込んだテキストは下に表示されます。",
+    applyNewick: "NEWICKを適用",
+    statsTitle: "現在の系統樹情報",
+    tips: "葉",
+    internalNodes: "内部ノード",
+    branches: "枝",
+    maxDepth: "最大深さ",
+    totalLength: "枝長合計",
+    layoutPreset: "レイアウト",
+    layoutLabel: "レイアウト",
+    edgeWidth: "枝の太さ",
+    verticalSpacing: "上下間隔",
+    horizontalScale: "横幅スケール",
+    showSection: "表示",
+    internalNodeLabelsSection: "内部ノードラベル",
+    branchLengthsSection: "枝長",
+    supportValues: "サポート値",
+    nodeDots: "ノード表示",
+    textSize: "文字サイズ",
+    offset: "オフセット",
+    leafOffset: "葉ラベル位置",
+    phylogram: "フィログラム",
+    cladogram: "クラドグラム",
+    activeSelection: "選択中",
+    reroot: "再ルート化",
+    flip: "反転",
+    addLeaf: "葉を追加",
+    delete: "削除",
+    edgeLabelColor: "枝／ラベル色",
+    lengthLabel: "長さ",
+    widthLabel: "太さ",
+    nodeSize: "ノードサイズ",
+    showNodes: "ノード表示",
+    nameLabel: "名前",
+    leafLabelSize: "葉ラベルサイズ",
+    bold: "太字",
+    reset: "リセット",
+    textExports: "テキスト出力",
+    leafList: "葉リスト",
+    currentNewick: "現在のNEWICK",
+    copy: "コピー",
+    copied: "コピーしました",
+    copyFailed: "コピー失敗",
+    imageExports: "画像出力",
+    italicTips: "葉ラベルを斜体にする",
+    scaleLabel: "倍率",
+    fitView: "全体表示",
+    resetView: "リセット",
+    dragNodesOn: "ノードドラッグ: ON",
+    dragNodesOff: "ノードドラッグ: OFF",
+    searchLeaves: "葉を検索",
+    clear: "クリア",
+    close: "閉じる",
+    headerTagline: "系統樹インタラクティブエディタ",
+    png: "PNG",
+    svg: "SVG",
+    pdfVector: "PDF（ベクター）",
+    tipStyling: "葉ラベル調整"
+  }
+};
 
 type ColorSelectorProps = {
   selectedColor?: string | null;
@@ -185,10 +326,11 @@ function parseNewick(newick: string): TreeNode {
   if (newick[i] === ";") i++;
   return tree;
 }
-function toNewick(node: TreeNode): string {
+function toNewick(node: TreeNode, options?: { includeLengths?: boolean }): string {
+  const includeLengths = options?.includeLengths !== false;
   function rec(n: TreeNode): string {
     const name = n.name ? n.name.replace(/[\s\t\n\r]/g, "_") : "";
-    const len = typeof n.length === "number" ? `:${+n.length.toFixed(6)}` : "";
+    const len = includeLengths && typeof n.length === "number" ? `:${+n.length.toFixed(6)}` : "";
     if (n.children?.length) return `(${n.children.map(rec).join(",")})${name}${len}`;
     return `${name || "Unnamed"}${len}`;
   }
@@ -343,17 +485,31 @@ function collapseUnaryInPlace(node: TreeNode): TreeNode {
 export default function TreeEditor(){
   const EXAMPLE="((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4)88/0.92:0.5);";
   const [rawText,setRawText]=useState(EXAMPLE);
+  const newickWarning = useMemo(()=>{
+    if(!rawText.trim()) return null;
+    let open=0, close=0;
+    for(const ch of rawText){
+      if(ch==="(") open++;
+      else if(ch===")") close++;
+    }
+    if(open===close) return null;
+    return `Parentheses mismatch in NEWICK string.\nFound ${open} "(" and ${close} ")".`;
+  },[rawText]);
   const [tree,setTree]=useState<TreeNode>(()=>ensureIds(parseNewick(EXAMPLE)));
+  const [lang,setLang]=useState<Locale>("en");
+  const t = useCallback((key: string, fallback: string)=> UI_TEXT[lang]?.[key] ?? fallback,[lang]);
   const [historyStack, setHistoryStack] = useState<TreeNode[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const historyInitRef = useRef(false);
+  const latestTreeRef = useRef(tree);
+  useEffect(()=>{ latestTreeRef.current = tree; },[tree]);
   const [layout,setLayout]=useState<LayoutMode>("phylogram");
   const [edgeWidth,setEdgeWidth]=useState(1.5);
   const [leafLabelSize,setLeafLabelSize]=useState(25);
-  const [nodeLabelSize,setNodeLabelSize]=useState(11);
-  const [branchLabelSize,setBranchLabelSize]=useState(10);
+  const [nodeLabelSize,setNodeLabelSize]=useState(15);
+  const [branchLabelSize,setBranchLabelSize]=useState(15);
   const [branchLengthPrecision,setBranchLengthPrecision]=useState(3);
-  const [supportLabelSize,setSupportLabelSize]=useState(10);
+  const [supportLabelSize,setSupportLabelSize]=useState(15);
   const [branchLenOffsetX,setBranchLenOffsetX]=useState(0);
   const [branchLenOffsetY,setBranchLenOffsetY]=useState(-4);
   const [bootstrapOffsetX,setBootstrapOffsetX]=useState(0);
@@ -368,14 +524,19 @@ export default function TreeEditor(){
   const [showBranchLen,setShowBranchLen]=useState(false);
   const [showBootstrap,setShowBootstrap]=useState(false);
   const [showNodeDots,setShowNodeDots]=useState(false);
+  const [branchEditMode,setBranchEditMode]=useState(false);
   const [leafNodeDotSize,setLeafNodeDotSize]=useState(2.5);
   const [internalNodeDotSize,setInternalNodeDotSize]=useState(3.5);
+  const showNodeDotsEffective = showNodeDots || branchEditMode;
   const [search,setSearch]=useState("");
   const [searchFocusIndex,setSearchFocusIndex]=useState(0);
   const [zoomK,setZoomK]=useState(1);
   const [branchLengthInput,setBranchLengthInput]=useState("");
   const [branchWidthInput,setBranchWidthInput]=useState(()=>String(1.5));
   const [tipNameInput,setTipNameInput]=useState("");
+  const [tipLabelSizeInput,setTipLabelSizeInput]=useState("");
+  const branchEditActive = branchEditMode;
+  const [tipLabelBold,setTipLabelBold]=useState(false);
   const [nodeSizeInput,setNodeSizeInput]=useState("");
   const [useRegex,setUseRegex]=useState(false);
   const [regexError,setRegexError]=useState<string | null>(null);
@@ -384,9 +545,77 @@ export default function TreeEditor(){
   const [paneDimensions, setPaneDimensions] = useState({ w: 1200, h: 600 });
   const [autoLayoutVersion, setAutoLayoutVersion] = useState(0);
   const textMeasureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const newickTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
+  const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
+  const cladogramDomainRef = useRef(1);
+  const suppressClickRef = useRef(false);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
+  const currentNewick = useMemo(()=>toNewick(tree, { includeLengths: layout!=="cladogram" }),[tree, layout]);
+  const [currentNewickEditable,setCurrentNewickEditable]=useState(currentNewick);
+  useEffect(()=>{ setCurrentNewickEditable(currentNewick); },[currentNewick]);
+  const newickStats = useMemo(()=>{
+    let internalNodes=0;
+    let branchCount=0;
+    let totalLength=0;
+    let maxDepth=0;
+    const traverse=(node: TreeNode, depth: number)=>{
+      maxDepth=Math.max(maxDepth, depth);
+      const children=node.children??[];
+      if(children.length){
+        internalNodes++;
+        children.forEach(child=>{
+          branchCount++;
+          if(typeof child.length==="number" && Number.isFinite(child.length)){
+            totalLength+=child.length;
+          }
+          traverse(child, depth+1);
+        });
+      }
+    };
+    traverse(tree,0);
+    return {
+      tips: tipCount,
+      internalNodes,
+      branchCount,
+      maxDepth,
+      totalLength
+    };
+  },[tree, tipCount]);
+  const copyNewickToClipboard = useCallback(async ()=>{
+    const fallbackCopy = ()=>{
+      if(typeof document === "undefined") throw new Error("Clipboard API unavailable");
+      const textarea = newickTextareaRef.current;
+      if(!textarea) throw new Error("No NEWICK textarea");
+      const previousActive = document.activeElement as HTMLElement | null;
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      const success = document.execCommand("copy");
+      textarea.setSelectionRange(0, 0);
+      if(previousActive && typeof previousActive.focus === "function") previousActive.focus();
+      if(!success) throw new Error("execCommand copy failed");
+    };
+    try{
+      if(typeof navigator !== "undefined" && navigator.clipboard?.writeText){
+        await navigator.clipboard.writeText(currentNewick);
+        setNewickCopyState("copied");
+        return;
+      }
+      fallbackCopy();
+      setNewickCopyState("copied");
+    }catch(err){
+      console.warn("Failed to copy NEWICK via Clipboard API", err);
+      try{
+        fallbackCopy();
+        setNewickCopyState("copied");
+      }catch(fallbackErr){
+        console.warn("Fallback copy failed", fallbackErr);
+        setNewickCopyState("error");
+      }
+    }
+  },[currentNewick]);
   const tipCountsById = useMemo<Map<number, number>>(()=>{
     const map = new Map<number, number>();
     mapTipCounts(tree, map);
@@ -610,6 +839,12 @@ export default function TreeEditor(){
     }
   },[historyIndex]);
 
+  const mutateTree = useCallback((mutator: (draft: TreeNode)=>void, options?: { skipHistory?: boolean })=>{
+    const draft = clone(latestTreeRef.current);
+    mutator(draft);
+    commitTree(draft, { preserveZoom: true, skipHistory: options?.skipHistory ?? false });
+  },[commitTree]);
+
 
   // Layout computation
   const { nodes, links, totalLength, xExtent, yExtent } = useMemo<LayoutSnapshot>(()=>{
@@ -624,9 +859,19 @@ export default function TreeEditor(){
 
     let maxDepth=0; root.each(d=>{ if(!d.children) maxDepth=Math.max(maxDepth,d.depth); });
     (function assignX(d: HierarchyNodeWithLayout){
-      if(!d.parent) d._x=0;
-      else if(layout==='phylogram') d._x = (d.parent._x ?? 0) + (Number.isFinite(d.data.length)?Number(d.data.length):0);
-      else d._x = (!d.children?.length)? maxDepth : d.depth;
+      let baseX = 0;
+      if(!d.parent) baseX = 0;
+      else if(layout==='phylogram'){
+        baseX = (d.parent._x ?? 0) + (Number.isFinite(d.data.length)?Number(d.data.length):0);
+      }else{
+        baseX = d.children?.length ? d.depth : maxDepth;
+      }
+      if(layout==='cladogram'){
+        const offset = typeof d.data.__cladoOffset === "number" && Number.isFinite(d.data.__cladoOffset) ? d.data.__cladoOffset as number : 0;
+        d._x = baseX + offset;
+      }else{
+        d._x = baseX;
+      }
       d.children?.forEach(child=>assignX(child as HierarchyNodeWithLayout));
     })(root);
 
@@ -661,6 +906,12 @@ export default function TreeEditor(){
     const yExtent:[number,number]=[Math.min(...ys,0), Math.max(...ys,0)];
     return { nodes, links, totalLength: xMax, xExtent, yExtent };
   },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, leafLabelOffsetX, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
+
+  useEffect(()=>{
+    if(layout === "cladogram"){
+      cladogramDomainRef.current = Math.max(1, totalLength || 1);
+    }
+  },[layout, totalLength]);
 
   /** ---------- ScaleBar: HTML overlay (onscreen) ---------- */
   function formatScaleUnits(value: number){
@@ -697,13 +948,55 @@ export default function TreeEditor(){
 
   // Selection & context menu
   const [selection,setSelection]=useState<SelectionState | null>(null);
+  const [multiSelection,setMultiSelection]=useState<SelectionState[]>([]);
   const [menu,setMenu]=useState<ContextMenuState>({visible:false,left:0,top:0});
+
+  const updateCladoOffset = useCallback((nodeId: number, nextOffset: number, options?: { skipHistory?: boolean })=>{
+    const domain = Math.max(1, cladogramDomainRef.current);
+    const limited = Math.max(-domain * 2, Math.min(domain * 2, nextOffset));
+    mutateTree(root=>{
+      const target = findById(root, nodeId);
+      if(!target) return;
+      if(Math.abs(limited) < 1e-4){
+        delete target.__cladoOffset;
+      }else{
+        target.__cladoOffset = limited;
+      }
+    }, { skipHistory: options?.skipHistory ?? false });
+  },[mutateTree]);
+  const updateBranchLengthValue = useCallback((nodeId: number, nextLength: number, options?: { skipHistory?: boolean })=>{
+    mutateTree(root=>{
+      const target = findById(root, nodeId);
+      if(!target) return;
+      const parent = parentOf(root, nodeId);
+      if(!parent) return;
+      const safeLength = Math.max(0, Number.isFinite(nextLength) ? nextLength : 0);
+      target.length = safeLength;
+    }, { skipHistory: options?.skipHistory ?? false });
+  },[mutateTree]);
 
   const selectedBranchNode = useMemo<TreeNode | null>(()=>{
     if(!selection) return null;
     const targetId = selection.type === 'link' ? selection.childId : selection.id;
     return targetId ? findById(tree, targetId) : null;
   },[selection, tree]);
+  const makeSelectionKey = useCallback((sel: SelectionState)=>{
+    return sel.type==='node' ? nodeSelectionKey(sel.id) : linkSelectionKey(sel.parentId, sel.childId);
+  },[]);
+  const multiSelectionKeySet = useMemo(()=> new Set(multiSelection.map(makeSelectionKey)),[multiSelection, makeSelectionKey]);
+  const applySingleSelection = useCallback((sel: SelectionState)=>{
+    setSelection(sel);
+    setMultiSelection([sel]);
+  },[]);
+  const toggleShiftSelection = useCallback((sel: SelectionState)=>{
+    const key = makeSelectionKey(sel);
+    setMultiSelection(prev=>{
+      const exists = prev.some(item=>makeSelectionKey(item)===key);
+      const next = exists ? prev.filter(item=>makeSelectionKey(item)!==key) : [...prev, sel];
+      setSelection(next.length ? next[next.length - 1] : null);
+      return next;
+    });
+  },[makeSelectionKey]);
 
   useEffect(()=>{
     if(selectedBranchNode && Number.isFinite(selectedBranchNode.length)){
@@ -764,6 +1057,7 @@ export default function TreeEditor(){
 
   const clearSelectionState = useCallback(()=>{
     setSelection(null);
+    setMultiSelection([]);
     hideContextMenu();
   },[hideContextMenu]);
 
@@ -786,18 +1080,21 @@ export default function TreeEditor(){
     const svg=d3.select<SVGSVGElement, unknown>(svgEl);
     const g=d3.select<SVGGElement, unknown>(gEl);
     const onZoom=(ev: d3.D3ZoomEvent<SVGSVGElement, unknown>)=>{
+      if(ev.sourceEvent && branchEditMode) return;
       if(ev.sourceEvent) userAdjustedZoomRef.current = true;
       g.attr("transform", `translate(${ev.transform.x + baseTranslateX},${ev.transform.y + baseTranslateY}) scale(${ev.transform.k})`);
       zoomTransformRef.current = ev.transform;
       setZoomK(ev.transform.k||1);
     };
-    const zoom=d3.zoom<SVGSVGElement, unknown>().on("zoom", onZoom);
+    const zoom=d3.zoom<SVGSVGElement, unknown>()
+      .filter((ev)=>!branchEditMode && (!ev.button || ev.button===0))
+      .on("zoom", onZoom);
     zoomRef.current=zoom;
     svg.call(zoom);
     return ()=>{
       svg.on(".zoom", null);
     };
-  },[baseTranslateX, baseTranslateY]);
+  },[baseTranslateX, baseTranslateY, branchEditMode]);
 
   // Observe right pane size (used for manual resets)
 
@@ -838,15 +1135,15 @@ export default function TreeEditor(){
 
   const handleHorizontalScaleSlider = useCallback((value: number)=>{
     userSetWidthRef.current = true;
+    userAdjustedZoomRef.current = true;
     setXScaleWidth(clampHorizontalWidth(value));
-    requestAnimationFrame(()=>fitToViewport());
-  },[clampHorizontalWidth, fitToViewport]);
+  },[clampHorizontalWidth]);
 
   const handleManualYGapChange = useCallback((value: number)=>{
     userSetYGapRef.current = true;
     setYGap(prev=>{
       const numeric = Number.isFinite(value) ? value : prev;
-      const next = Math.max(12, Math.min(200, numeric));
+      const next = Math.max(1, Math.min(200, numeric));
       if(next === prev) return prev;
       requestAnimationFrame(()=>fitToViewport());
       return next;
@@ -888,6 +1185,16 @@ export default function TreeEditor(){
     if(Number.isNaN(numeric) || numeric < 0) return;
     actionEditNodeSize(numeric, { keepMenu:true });
   },[selection, actionEditNodeSize]);
+
+  const handleCurrentNewickEditableChange = useCallback((value: string)=>{
+    setCurrentNewickEditable(value);
+    try{
+      const parsed = ensureIds(parseNewick(value));
+      commitTree(parsed);
+    }catch(err){
+      // ignore invalid edits until complete
+    }
+  },[commitTree]);
 
   const focusOnPoint = useCallback((targetX: number, targetY: number, options?: { scale?: number; preserveScale?: boolean })=>{
     const svgNode = svgRef.current;
@@ -984,7 +1291,7 @@ export default function TreeEditor(){
       setYGap(spacing);
       requestAnimationFrame(()=>fitToViewport());
     }
-  },[computeAutoVerticalSpacing, fitToViewport, yGap, autoLayoutVersion, xScaleWidth]);
+  },[computeAutoVerticalSpacing, fitToViewport, yGap, autoLayoutVersion]);
   useEffect(()=>{
     // Auto-fit on initial render only
     if(!didFirstFitRef.current){
@@ -1076,6 +1383,13 @@ export default function TreeEditor(){
     setSearchFocusIndex(0);
   },[search, useRegex]);
 
+  const selectedNode = useMemo(()=>{
+    if(selection?.type!=='node') return null;
+    return findById(tree, selection.id) ?? null;
+  },[selection, tree]);
+  const selectedLeaf = useMemo(()=> (selectedNode && !selectedNode.children?.length ? selectedNode : null),[selectedNode]);
+  const selInfo = (()=>{ if(!selection) return 'None'; if(selection.type==='node'){ const t=findById(tree,selection.id); return t?.name||'[node]'; } const t=findById(tree,selection.childId); return t?.name||'[branch]'; })();
+
   useEffect(()=>{
     if(!searchMatches.length){
       setSearchFocusIndex(0);
@@ -1087,6 +1401,22 @@ export default function TreeEditor(){
     });
   },[searchMatches.length]);
 
+  useEffect(()=>{
+    if(selectedLeaf){
+      setTipLabelBold(Boolean(selectedLeaf.__labelBold));
+      setTipLabelSizeInput(selectedLeaf.__labelFontSize !== undefined ? String(selectedLeaf.__labelFontSize) : "");
+    }else{
+      setTipLabelBold(false);
+      setTipLabelSizeInput("");
+    }
+  },[selectedLeaf]);
+
+  useEffect(()=>{
+    if(newickCopyState==="idle") return;
+    const id=setTimeout(()=>setNewickCopyState("idle"), 2000);
+    return ()=>clearTimeout(id);
+  },[newickCopyState]);
+
   const handleSearchNavigate = useCallback((direction: 1 | -1)=>{
     setSearchFocusIndex(prev=>{
       const count = searchMatches.length;
@@ -1097,7 +1427,6 @@ export default function TreeEditor(){
       return next;
     });
   },[searchMatches, focusOnPoint]);
-
   // Loading helpers
   function handleFileLoad(files: FileList | null){
     const f=files?.[0]; if(!f) return;
@@ -1105,16 +1434,75 @@ export default function TreeEditor(){
     reader.onload=()=>{ try{ setRawText(String(reader.result)); setActiveTab("data"); }catch(e){ const message = e instanceof Error ? e.message : String(e); alert("Failed to read NEWICK: "+message);} };
     reader.readAsText(f);
   }
-  function applyText(){ try{ commitTree(ensureIds(parseNewick(rawText))); }catch(e){ const message = e instanceof Error ? e.message : String(e); alert("Failed to parse NEWICK: "+message);} }
+  function applyText(){
+    if(newickWarning){
+      alert(newickWarning);
+      return;
+    }
+    try{
+      commitTree(ensureIds(parseNewick(rawText)));
+    }catch(e){
+      const message = e instanceof Error ? e.message : String(e);
+      alert("Failed to parse NEWICK: "+message);
+    }
+  }
   function loadExample(){ const s=EXAMPLE; setRawText(s); try{ commitTree(ensureIds(parseNewick(s))); }catch(e){ const message = e instanceof Error ? e.message : String(e); alert("Failed to parse example: "+message);} }
 
   function openMenuAt(cx: number, cy: number){
     const pane=rightPaneRef.current; if(!pane) return;
     const r=pane.getBoundingClientRect(); setMenu({visible:true,left:cx - r.left, top:cy - r.top});
   }
+  const handleNodeMouseDown = useCallback((n: PositionedNode, e: React.MouseEvent<SVGGElement, MouseEvent>)=>{
+    if(!branchEditMode) return;
+    if(e.button !== 0) return;
+    const nodeId = n.d.data.__id;
+    if(nodeId === undefined) return;
+    if(layout==='phylogram' && !n.d.parent) return;
+    const treeNode = findById(latestTreeRef.current, nodeId);
+    if(!treeNode) return;
+    e.preventDefault();
+    e.stopPropagation();
+      const startOffset = typeof treeNode.__cladoOffset === "number" && Number.isFinite(treeNode.__cladoOffset) ? (treeNode.__cladoOffset as number) : 0;
+    const startLength = Number.isFinite(treeNode.length) ? Number(treeNode.length) : 0;
+    const domain = layout==='cladogram' ? Math.max(1e-6, cladogramDomainRef.current) : Math.max(1e-6, totalLength || 1);
+    const info = { nodeId, startX: e.clientX, startOffset, startLength, domain, hasMoved:false };
+    const handleMove = (ev: MouseEvent)=>{
+      const dx = ev.clientX - info.startX;
+      if(!info.hasMoved && Math.abs(dx) < 2) return;
+      info.hasMoved = true;
+      suppressClickRef.current = true;
+      const delta = (dx / Math.max(1, xScaleWidth)) * info.domain;
+      if(layout==='cladogram'){
+        updateCladoOffset(info.nodeId, info.startOffset + delta, { skipHistory: true });
+      }else{
+        const nextLength = info.startLength + delta;
+        updateBranchLengthValue(info.nodeId, Math.max(0, nextLength), { skipHistory: true });
+      }
+    };
+    const handleUp = ()=>{
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      if(info.hasMoved){
+        commitTree(clone(latestTreeRef.current), { preserveZoom: true });
+      }
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  },[branchEditMode, layout, totalLength, xScaleWidth, updateCladoOffset, updateBranchLengthValue, commitTree]);
+
   function onClickNode(n: PositionedNode, e: React.MouseEvent<SVGGElement, MouseEvent>){
+    if(suppressClickRef.current){
+      suppressClickRef.current=false;
+      return;
+    }
     if(n.d.data.__id === undefined) return;
-    setSelection({type:'node', id:n.d.data.__id});
+    const sel = {type:'node', id:n.d.data.__id} as SelectionState;
+    if(e.shiftKey){
+      toggleShiftSelection(sel);
+      e.stopPropagation();
+      return;
+    }
+    applySingleSelection(sel);
     openMenuAt(e.clientX,e.clientY);
     e.stopPropagation();
   }
@@ -1123,9 +1511,32 @@ export default function TreeEditor(){
     const parentId=l.source.d.data.__id;
     const childId=l.target.d.data.__id;
     if(parentId === undefined || childId === undefined) return;
-    setSelection({type:'link', parentId, childId});
+    const sel = {type:'link', parentId, childId} as SelectionState;
+    if(e.shiftKey){
+      toggleShiftSelection(sel);
+      e.stopPropagation();
+      return;
+    }
+    applySingleSelection(sel);
     openMenuAt(e.clientX,e.clientY); e.stopPropagation();
   }
+
+  const applyToSelectedLeaves = (mutator: (node: TreeNode)=>void)=>{
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return false;
+    const updated = clone(tree);
+    let changed=false;
+    targets.forEach(sel=>{
+      if(sel.type!=='node') return;
+      const node = findById(updated, sel.id);
+      if(!node || node.children?.length) return;
+      mutator(node);
+      changed=true;
+    });
+    if(!changed) return false;
+    commitTree(updated, { preserveZoom: true });
+    return true;
+  };
 
   // Editing actions
   function actionCollapseSelected(){
@@ -1154,7 +1565,7 @@ export default function TreeEditor(){
     if(selection.type==='node'){ const p=parentOf(tree, selection.id); if(!p){ alert('Cannot delete the root node'); return; }
       p.children=(p.children||[]).filter(c=>c.__id!==selection.id); if(!p.children?.length) delete p.children;
     } else { const p=findById(tree, selection.parentId); if(!p?.children) return; p.children=p.children.filter(c=>c.__id!==selection.childId); if(!p.children?.length) delete p.children; }
-    collapseUnaryInPlace(tree); setSelection(null); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
+    collapseUnaryInPlace(tree); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
   }
   function actionAddLeaf(){ if(!selection) return;
     if(selection.type==='link'){ const p=findById(tree, selection.parentId), c=findById(tree, selection.childId); if(!p||!c) return;
@@ -1194,13 +1605,13 @@ export default function TreeEditor(){
       const obj=findById(tree,selection.id); if(!obj) return;
       const r0=rerootAt(tree,obj); const r=collapseUnaryInPlace(r0); ensureIds(r);
       if(!obj.children?.length && obj.__id !== undefined) ladderizeTipBottom(r,obj.__id);
-      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMenu({...menu,visible:false});
+      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
     }
     else {
       const {parentId,childId}=selection; const r0=rerootOnEdge(tree,parentId,childId,0.5); const r=collapseUnaryInPlace(r0); ensureIds(r);
       const tip=findById(r,childId);
       if(tip && !tip.children?.length && tip.__id !== undefined) ladderizeTipBottom(r, tip.__id);
-      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMenu({...menu,visible:false});
+      commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
     }
   }
   function actionRenameTip(nm: string){
@@ -1213,6 +1624,34 @@ export default function TreeEditor(){
     setTipNameInput(t.name);
     commitTree(clone(tree), { preserveZoom: true });
     setMenu({...menu,visible:false});
+  }
+  function actionSetTipLabelBold(enabled: boolean){
+    applyToSelectedLeaves(node=>{
+      if(enabled) node.__labelBold = true;
+      else delete node.__labelBold;
+    });
+  }
+  function actionSetTipLabelFontSize(size: number | null){
+    applyToSelectedLeaves(node=>{
+      if(size && Number.isFinite(size)){
+        node.__labelFontSize = Math.max(6, size);
+      }else{
+        delete node.__labelFontSize;
+      }
+    });
+  }
+  function commitTipLabelSizeInput(value: string){
+    const trimmed=value.trim();
+    if(!trimmed){
+      actionSetTipLabelFontSize(null);
+      return;
+    }
+    const parsed=parseFloat(trimmed);
+    if(Number.isNaN(parsed)){
+      actionSetTipLabelFontSize(null);
+      return;
+    }
+    actionSetTipLabelFontSize(parsed);
   }
   function actionEditLength(vs: string, opts?: { keepMenu?: boolean }){
     const candidate = vs ?? branchLengthInput;
@@ -1229,14 +1668,23 @@ export default function TreeEditor(){
   }
   function actionEditBranchWidth(vs: string, opts?: { keepMenu?: boolean }){
     const candidate = vs ?? branchWidthInput;
-    const id=selection?.type==='link'?selection.childId:selection?.id;
-    if(!id) return;
-    const t=findById(tree,id); if(!t) return;
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return;
     const trimmed=(candidate ?? "").trim();
+    const updated = clone(tree);
+    const applyToTargets = (fn: (node: TreeNode)=>void)=>{
+      targets.forEach(sel=>{
+        const id = sel.type==='link' ? sel.childId : sel.id;
+        if(id === undefined) return;
+        const target = findById(updated, id);
+        if(!target) return;
+        fn(target);
+      });
+    };
     if(!trimmed){
-      delete t.__edgeWidth;
+      applyToTargets(node=>{ delete node.__edgeWidth; });
       setBranchWidthInput(String(edgeWidth));
-      commitTree(clone(tree), { preserveZoom: true });
+      commitTree(updated, { preserveZoom: true });
       if(!opts?.keepMenu){
         setMenu({...menu,visible:false});
       }
@@ -1245,37 +1693,51 @@ export default function TreeEditor(){
     const v=parseFloat(trimmed);
     if(Number.isNaN(v) || v<=0){ alert('Enter a positive width (px)'); return; }
     const clamped=Math.max(0.25, Math.min(12, v));
-    t.__edgeWidth=clamped;
+    applyToTargets(node=>{ node.__edgeWidth = clamped; });
     setBranchWidthInput(String(clamped));
-    commitTree(clone(tree), { preserveZoom: true });
+    commitTree(updated, { preserveZoom: true });
     if(!opts?.keepMenu){
       setMenu({...menu,visible:false});
     }
   }
   function actionEditNodeSize(value: number | null, opts?: { keepMenu?: boolean }){
-    if(selection?.type!=='node') return;
-    const id=selection.id;
-    const target=findById(tree,id);
-    if(!target) return;
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return;
+    const updated = clone(tree);
+    const apply = (fn: (node: TreeNode)=>void)=>{
+      targets.forEach(sel=>{
+        if(sel.type!=='node') return;
+        const target=findById(updated, sel.id);
+        if(!target) return;
+        fn(target);
+      });
+    };
     if(value === null){
-      delete target.__nodeSize;
+      apply(node=>{ delete node.__nodeSize; });
       setNodeSizeInput("");
     }else{
       const clamped=Math.max(0, Math.min(40, value));
-      target.__nodeSize=clamped;
+      apply(node=>{ node.__nodeSize=clamped; });
       setNodeSizeInput(String(clamped));
     }
-    commitTree(clone(tree), { preserveZoom: true });
+    commitTree(updated, { preserveZoom: true });
     if(!opts?.keepMenu){
       setMenu({...menu,visible:false});
     }
   }
   function actionColorSelected(c: string){
-    if(!selection) return;
-    const id=selection.type==='node'?selection.id:selection.childId;
-    const t=findById(tree,id); if(!t) return;
-    if(selection.type==='link') t.__edgeColor=c; else t.__color=c;
-    commitTree(clone(tree), { preserveZoom: true });
+    const targets = multiSelection.length ? multiSelection : (selection ? [selection] : []);
+    if(!targets.length) return;
+    const updated = clone(tree);
+    targets.forEach(sel=>{
+      const id = sel.type==='node' ? sel.id : sel.childId;
+      if(id === undefined) return;
+      const target = findById(updated, id);
+      if(!target) return;
+      if(sel.type==='link') target.__edgeColor = c;
+      else target.__color = c;
+    });
+    commitTree(updated, { preserveZoom: true });
   }
 
 
@@ -1301,20 +1763,26 @@ export default function TreeEditor(){
     return { units, px };
   }
 
-  function stripSelectionStylesFromGroup(group: SVGGElement){
-    const edgePaths = group.querySelectorAll<SVGPathElement>('[data-base-stroke]');
-    edgePaths.forEach(path=>{
-      const baseStroke = path.getAttribute('data-base-stroke');
-      if(baseStroke) path.setAttribute('stroke', baseStroke);
+function stripSelectionStylesFromGroup(group: SVGGElement){
+  const edgePaths = group.querySelectorAll<SVGPathElement>('[data-base-stroke]');
+  edgePaths.forEach(path=>{
+    const baseStroke = path.getAttribute('data-base-stroke');
+    if(baseStroke) path.setAttribute('stroke', baseStroke);
       const baseWidth = path.getAttribute('data-base-width');
       if(baseWidth) path.setAttribute('stroke-width', baseWidth);
-    });
-    const nodeCircles = group.querySelectorAll<SVGCircleElement>('[data-base-fill]');
-    nodeCircles.forEach(circle=>{
-      const baseFill = circle.getAttribute('data-base-fill');
-      if(baseFill) circle.setAttribute('fill', baseFill);
-    });
-  }
+  });
+  const nodeCircles = group.querySelectorAll<SVGCircleElement>('[data-base-fill]');
+  nodeCircles.forEach(circle=>{
+    const baseFill = circle.getAttribute('data-base-fill');
+    if(baseFill) circle.setAttribute('fill', baseFill);
+  });
+  const labelHighlights = group.querySelectorAll<SVGElement>('[data-label-highlight]');
+  labelHighlights.forEach(el=>{
+    el.removeAttribute('stroke');
+    el.removeAttribute('stroke-width');
+    el.removeAttribute('paint-order');
+  });
+}
   function buildStandaloneSVGBlobWithScaleBar(): Blob | null{
     const gNode=gRef.current; if(!gNode) return null;
     const pad=20;
@@ -1366,7 +1834,14 @@ export default function TreeEditor(){
   }
 
   // ---------- Downloads ----------
-  function downloadNewick(){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([toNewick(tree)],{type:'text/plain'})); a.download='edited_tree.nwk'; a.click(); }
+  function downloadNewick(){
+    const includeLengths = layout!=="cladogram";
+    const payload = toNewick(tree, { includeLengths });
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([payload],{type:'text/plain'}));
+    a.download='edited_tree.nwk';
+    a.click();
+  }
   function downloadLeafList(){
     const leaves=collectTips(tree).map(t=>t.name||'Unnamed').join('\n');
     const a=document.createElement('a');
@@ -1443,13 +1918,12 @@ export default function TreeEditor(){
     pdf.save('tree.pdf');
   }
 
-  const selInfo = (()=>{ if(!selection) return 'None'; if(selection.type==='node'){ const t=findById(tree,selection.id); return t?.name||'[node]'; } const t=findById(tree,selection.childId); return t?.name||'[branch]'; })();
-  const tabs: { id: typeof activeTab; label: string }[] = [
-    { id: "data", label: "Data" },
-    { id: "selection", label: "Selection" },
-    { id: "rendering", label: "Rendering" },
-    { id: "export", label: "Export" },
-  ];
+  const tabs = useMemo<{ id: typeof activeTab; label: string }[]>(()=>[
+    { id: "data", label: t("dataTab","Data") },
+    { id: "selection", label: t("selectionTab","Selection") },
+    { id: "rendering", label: t("renderingTab","Rendering") },
+    { id: "export", label: t("exportTab","Export") },
+  ],[t]);
   const renderTabContent = () => {
     switch (activeTab) {
       case "data":
@@ -1457,30 +1931,73 @@ export default function TreeEditor(){
           <div className="space-y-4 text-[0.95rem]">
             <div className="flex gap-3 items-center flex-wrap">
               <label className={`${BUTTON_CLASSES} inline-flex items-center justify-center`}>
-                <span>Upload NEWICK</span>
+                <span>{t("uploadNewick","Upload NEWICK")}</span>
                 <input type="file" accept=".nwk,.newick,.tree,.tre,.txt" className="hidden" onChange={(e)=>handleFileLoad(e.target.files)} />
               </label>
-              <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>Load example</button>
+              <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>{t("loadExample","Load example")}</button>
             </div>
-            <p className="text-sm text-slate-600">Uploaded text appears below. Review or edit before applying.</p>
-            <textarea className={`${INPUT_CLASSES} w-full h-32 resize-none`} placeholder="Paste NEWICK string" value={rawText} onChange={(e)=>setRawText(e.target.value)} />
-            <button className={`${BUTTON_CLASSES} w-full`} onClick={applyText}>Apply NEWICK</button>
+            <p className="text-sm text-slate-600">{t("uploadHelper","Uploaded text appears below.")}</p>
+            <div className="space-y-1">
+              <textarea
+                className={`${INPUT_CLASSES} w-full h-20 resize-y ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
+                placeholder="Paste NEWICK string"
+                value={rawText}
+                onChange={(e)=>setRawText(e.target.value)}
+              />
+              {newickWarning && <p className="text-sm font-semibold text-red-600 whitespace-pre-line">{newickWarning}</p>}
+            </div>
+            <button className={`${BUTTON_CLASSES} w-full`} onClick={applyText}>{t("applyNewick","Apply NEWICK")}</button>
+            {newickStats && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("statsTitle","Current tree stats")}</div>
+                <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-2 text-[0.85rem]">
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("tips","Tips")}</div>
+                    <div className="font-semibold text-slate-900">{newickStats.tips}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("internalNodes","Internal nodes")}</div>
+                    <div className="font-semibold text-slate-900">{newickStats.internalNodes}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("branches","Branches")}</div>
+                    <div className="font-semibold text-slate-900">{newickStats.branchCount}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("maxDepth","Max depth")}</div>
+                    <div className="font-semibold text-slate-900">{newickStats.maxDepth}</div>
+                  </div>
+                  <div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500 whitespace-nowrap">{t("totalLength","Total branch length")}</div>
+                    <div className="font-semibold text-slate-900">{newickStats.totalLength.toFixed(4)}</div>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-1 text-lg text-slate-700 font-mono break-words">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("currentNewick","NEWICK")}</span>
+                  <textarea
+                    className={`${INPUT_CLASSES} w-full min-h-[120px] resize-y font-mono text-base`}
+                    value={currentNewickEditable}
+                    onChange={(e)=>handleCurrentNewickEditableChange(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
             <div className="pt-2 border-t border-slate-200">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Layout preset</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("layoutPreset","Layout preset")}</span>
               <div className="mt-2 flex gap-2 flex-wrap">
                 <button
                   className={`flex-1 min-w-[120px] rounded-xl border px-3 py-2 text-sm font-semibold transition flex items-center justify-center gap-2 ${layout==="phylogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-600 hover:border-[#286699]"}`}
                   onClick={()=>handleLayoutModeChange("phylogram")}
                 >
                   <IconLayoutPhylo active={layout==="phylogram"} />
-                  <span>Phylogram</span>
+                  <span>{t("phylogram","Phylogram")}</span>
                 </button>
                 <button
                   className={`flex-1 min-w-[120px] rounded-xl border px-3 py-2 text-sm font-semibold transition flex items-center justify-center gap-2 ${layout==="cladogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-600 hover:border-[#286699]"}`}
                   onClick={()=>handleLayoutModeChange("cladogram")}
                 >
                   <IconLayoutClado active={layout==="cladogram"} />
-                  <span>Cladogram</span>
+                  <span>{t("cladogram","Cladogram")}</span>
                 </button>
               </div>
             </div>
@@ -1489,27 +2006,28 @@ export default function TreeEditor(){
       case "selection":
         return (
           <div className="space-y-3 text-[0.95rem]">
-            <div className="text-slate-600">Active selection: <span className="font-mono text-slate-800">{selInfo}</span></div>
+            <div className="text-sm text-slate-500">{t("multiSelectHint","Hold shift key and click to select multiple items")}</div>
+            <div className="text-slate-600">{t("activeSelection","Active selection")}: <span className="font-mono text-slate-800">{selInfo}</span></div>
             <div className="grid grid-cols-2 gap-2">
               <button className={`${BUTTON_CLASSES} flex flex-row items-center justify-center gap-3 py-3`} onClick={actionReroot}>
                 <IconReroot />
-                <span className="whitespace-nowrap">Reroot</span>
+                <span className="whitespace-nowrap">{t("reroot","Reroot")}</span>
               </button>
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionFlipNode}>
-                <IconFlip /> <span>Flip</span>
+                <IconFlip /> <span>{t("flip","Flip")}</span>
               </button>
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionAddLeaf}>
-                <IconAddLeaf /> <span>Add leaf</span>
+                <IconAddLeaf /> <span>{t("addLeaf","Add leaf")}</span>
               </button>
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionDeleteSelected}>
-                <IconDelete /> <span>Delete</span>
+                <IconDelete /> <span>{t("delete","Delete")}</span>
               </button>
               <div className="col-span-2 space-y-2">
-                <span className="text-sm font-medium text-slate-700">Edge / label color</span>
+                <span className="text-sm font-medium text-slate-700">{t("edgeLabelColor","Edge / label color")}</span>
                 <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} />
               </div>
               <div className="col-span-2 space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Length</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("lengthLabel","Length")}</span>
                 <input
                   type="number"
                   min={0}
@@ -1522,7 +2040,7 @@ export default function TreeEditor(){
                 />
               </div>
               <div className="col-span-2 space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("widthLabel","Width")}</span>
                 <input
                   type="number"
                   min={0}
@@ -1536,7 +2054,17 @@ export default function TreeEditor(){
               </div>
               {selection?.type==='node' && (
                 <div className="col-span-2 space-y-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nodeSize","Node size")}</span>
+                    <label className="flex items-center gap-1 text-xs text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={showNodeDots}
+                        onChange={(e)=>setShowNodeDots(e.target.checked)}
+                      />
+                      <span>{t("showNodes","Show nodes")}</span>
+                    </label>
+                  </div>
                   <input
                     type="number"
                     min={0}
@@ -1559,9 +2087,54 @@ export default function TreeEditor(){
                 </div>
               )}
               <div className="col-span-2 space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Name</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nameLabel","Name")}</span>
                 <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionRenameTip(e.currentTarget.value); }} />
               </div>
+              {selectedLeaf && (
+                <div className="col-span-2 space-y-1 mt-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("leafLabelSize","Leaf label size")}</span>
+                      <label className="flex items-center gap-1 text-xs text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={tipLabelBold}
+                          onChange={(e)=>{
+                            const next=e.target.checked;
+                            setTipLabelBold(next);
+                            actionSetTipLabelBold(next);
+                          }}
+                        />
+                        <span>{t("bold","Bold")}</span>
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        className={`${INPUT_CLASSES} flex-1`}
+                        min={6}
+                        step={1}
+                        placeholder="Default"
+                        value={tipLabelSizeInput}
+                        onChange={(e)=>{
+                          setTipLabelSizeInput(e.currentTarget.value);
+                          commitTipLabelSizeInput(e.currentTarget.value);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className={`${SECONDARY_BUTTON_CLASSES} whitespace-nowrap`}
+                        onClick={()=>{
+                          setTipLabelSizeInput("");
+                          actionSetTipLabelFontSize(null);
+                        }}
+                      >
+                        {t("reset","Reset")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
@@ -1569,32 +2142,32 @@ export default function TreeEditor(){
         return (
           <div className="space-y-3 text-[0.95rem]">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-slate-600">Layout</span>
+              <span className="text-slate-600">{t("layoutLabel","Layout")}</span>
               <div className="flex gap-2">
                 <button
                   className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${layout==="phylogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-500"}`}
                   onClick={()=>handleLayoutModeChange("phylogram")}
                 >
                   <IconLayoutPhylo active={layout==="phylogram"} />
-                  <span className="text-sm font-medium">Phylogram</span>
+                  <span className="text-sm font-medium">{t("phylogram","Phylogram")}</span>
                 </button>
                 <button
                   className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${layout==="cladogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-500"}`}
                   onClick={()=>handleLayoutModeChange("cladogram")}
                 >
                   <IconLayoutClado active={layout==="cladogram"} />
-                  <span className="text-sm font-medium">Cladogram</span>
+                  <span className="text-sm font-medium">{t("cladogram","Cladogram")}</span>
                 </button>
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Edge width</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("edgeWidth","Edge width")}</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={edgeWidth} step={0.5} onChange={(e)=>setEdgeWidth(parseFloat(e.target.value)||1)} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Leaf label size</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("leafLabelSize","Leaf label size")}</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={leafLabelSize} onChange={(e)=>setLeafLabelSize(parseFloat(e.target.value)||15)} />
             </div>
             <div className="flex items-center justify-between gap-3">
-              <label className="text-slate-600">Leaf offset</label>
+              <label className="text-slate-600">{t("leafOffset","Leaf offset")}</label>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500">X</span>
                 <input
@@ -1618,10 +2191,10 @@ export default function TreeEditor(){
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Vertical spacing</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("verticalSpacing","Vertical spacing")}</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={yGap} onChange={(e)=>handleManualYGapChange(parseFloat(e.target.value))} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Horizontal scale</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("horizontalScale","Horizontal scale")}</label>
               <input
                 type="number"
                 className={`${INPUT_CLASSES} w-28`}
@@ -1637,21 +2210,21 @@ export default function TreeEditor(){
               />
             </div>
             <div className="pt-3 border-t border-slate-200 space-y-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Show</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("showSection","Show")}</span>
               <div className="space-y-3">
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showNodeLabels} onChange={(e)=>setShowNodeLabels(e.target.checked)} />
-                    <span>Internal node labels</span>
+                    <span>{t("internalNodeLabelsSection","Internal node labels")}</span>
                   </label>
                   {showNodeLabels && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>Text size</span>
+                        <span>{t("textSize","Text size")}</span>
                         <input type="number" className={`${INPUT_CLASSES} w-20`} value={nodeLabelSize} onChange={(e)=>setNodeLabelSize(parseFloat(e.target.value)||11)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span>Offset</span>
+                        <span>{t("offset","Offset")}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500">X</span>
                           <input
@@ -1683,16 +2256,16 @@ export default function TreeEditor(){
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showBranchLen} onChange={(e)=>setShowBranchLen(e.target.checked)} />
-                    <span>Branch lengths</span>
+                    <span>{t("branchLengthsSection","Branch lengths")}</span>
                   </label>
                   {showBranchLen && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>Text size</span>
+                        <span>{t("textSize","Text size")}</span>
                         <input type="number" className={`${INPUT_CLASSES} w-20`} value={branchLabelSize} onChange={(e)=>setBranchLabelSize(parseFloat(e.target.value)||10)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span>Offset</span>
+                        <span>{t("offset","Offset")}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500">X</span>
                           <input
@@ -1739,13 +2312,13 @@ export default function TreeEditor(){
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showBootstrap} onChange={(e)=>setShowBootstrap(e.target.checked)} />
-                    <span>Support values</span>
+                    <span>{t("supportValues","Support values")}</span>
                   </label>
                   {showBootstrap && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
                         <span>Text size</span>
-                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={supportLabelSize} onChange={(e)=>setSupportLabelSize(parseFloat(e.target.value)||10)} />
+                        <input type="number" className={`${INPUT_CLASSES} w-20`} value={supportLabelSize} onChange={(e)=>setSupportLabelSize(parseFloat(e.target.value)||15)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span>Offset</span>
@@ -1780,7 +2353,7 @@ export default function TreeEditor(){
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showNodeDots} onChange={(e)=>setShowNodeDots(e.target.checked)} />
-                    <span>Node dots</span>
+                    <span>{t("nodeDots","Node dots")}</span>
                   </label>
                   {showNodeDots && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
@@ -1821,20 +2394,55 @@ export default function TreeEditor(){
         );
       case "export":
         return (
-          <div className="grid grid-cols-2 gap-2 mt-2 text-[0.95rem]">
-            <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
-            <button className={BUTTON_CLASSES} onClick={downloadLeafList}>Leaf list</button>
-            <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
-            <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
-            <button className={`${BUTTON_CLASSES} col-span-2`} onClick={downloadPDF}>PDF (vector)</button>
-            <div className="col-span-2 flex items-center justify-between">
-              <label className="text-slate-600">PNG scale (x)</label>
-              <input type="number" className={`${INPUT_CLASSES} w-24`} value={pngScale} min={1} step={1} onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))} />
+          <div className="space-y-4 mt-2 text-[0.95rem]">
+            <div className="space-y-3 border-b border-slate-200 pb-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("textExports","Text exports")}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
+                <button className={BUTTON_CLASSES} onClick={downloadLeafList}>{t("leafList","Leaf list")}</button>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-500">
+                  <span>{t("currentNewick","Current NEWICK")}</span>
+                  <button
+                    type="button"
+                    className="text-[0.75rem] font-semibold text-[#286699] hover:text-[#17476b]"
+                    onClick={copyNewickToClipboard}
+                  >
+                    {newickCopyState==="copied"?t("copied","Copied!"):newickCopyState==="error"?t("copyFailed","Copy failed"):t("copy","Copy")}
+                  </button>
+                </div>
+                <textarea
+                  ref={newickTextareaRef}
+                  className={`${INPUT_CLASSES} w-full h-24 font-mono text-xs bg-white`}
+                  readOnly
+                  value={currentNewick}
+                />
+              </div>
             </div>
-            <label className="col-span-2 flex items-center gap-2 text-slate-600">
-              <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
-              <span className="text-sm font-medium">Italic tip labels</span>
-            </label>
+            <div className="space-y-3 pt-1">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("imageExports","Image exports")}</div>
+              <label className="flex items-center gap-2 text-slate-600 text-sm">
+                <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
+                <span className="font-medium">{t("italicTips","Italic tip labels")}</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2 items-center">
+                <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
+                <label className="flex items-center justify-end gap-3 text-sm text-slate-600 text-right">
+                  <span className="font-medium">{t("scaleLabel","Scale (x)")}</span>
+                  <input
+                    type="number"
+                    className={`${INPUT_CLASSES} w-20`}
+                    value={pngScale}
+                    min={1}
+                    step={1}
+                    onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))}
+                  />
+                </label>
+                <button className={BUTTON_CLASSES} onClick={downloadSVG}>{t("svg","SVG")}</button>
+                <button className={BUTTON_CLASSES} onClick={downloadPDF}>{t("pdfVector","PDF (vector)")}</button>
+              </div>
+            </div>
           </div>
         );
       default:
@@ -1842,6 +2450,12 @@ export default function TreeEditor(){
     }
   };
 
+
+  useEffect(()=>{
+    if(activeTab==="selection" && menu.visible){
+      setMenu(prev=>prev.visible ? { ...prev, visible:false } : prev);
+    }
+  },[activeTab, menu.visible]);
 
   useEffect(()=>{
     return ()=>{
@@ -1889,42 +2503,56 @@ export default function TreeEditor(){
         <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
-            <span className="text-sm text-slate-500">Interactive editor for phylogenies</span>
+            <span className="text-sm text-slate-500">{t("headerTagline","Interactive editor for phylogenies")}</span>
           </div>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
-          >
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
-            </svg>
-            <span>GitHub</span>
-          </a>
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-full border border-[#286699]/30 bg-white/80 text-sm font-semibold overflow-hidden">
+              {(["en","jp"] as Locale[]).map((code)=>(
+                <button
+                  key={code}
+                  type="button"
+                  onClick={()=>setLang(code)}
+                  className={`px-3 py-1 transition ${lang===code?"bg-[#286699] text-white":"text-[#286699]"}`}
+                >
+                  {code.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
+              </svg>
+              <span>GitHub</span>
+            </a>
+          </div>
         </div>
       </div>
 
       <div className="w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-6 overflow-x-auto items-start">
         <div className="flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]">
-          <div className="relative">
-            <div className="flex gap-3 mb-4">
+          <div className="relative rounded-xl bg-white/95 shadow-xl overflow-hidden">
+            <div className="grid grid-cols-2 sm:grid-cols-4 text-center bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
               {tabs.map(tab=>(
                 <button
                   key={tab.id}
                   onClick={()=>setActiveTab(tab.id)}
                   className={[
-                    "px-4 py-2 rounded-xl text-sm font-semibold shadow-md border transition-all duration-150",
+                    "w-full px-4 py-3 text-sm font-semibold transition-colors duration-150 border-b-2 -mb-px flex items-center justify-center text-center whitespace-nowrap",
                     activeTab===tab.id
-                      ? "bg-[#3874a6] text-white border-[#3874a6] shadow-lg"
-                      : "bg-[#e4e4e4] text-[#286699] border border-transparent hover:border-[#286699]"
+                      ? "bg-white text-[#1f4870] border-[#3874a6] shadow-[inset_0_-2px_6px_rgba(0,0,0,0.08)]"
+                      : "bg-[#e7ecf3] text-[#4b6786]/50 border-transparent hover:text-[#1f4870] hover:bg-white/60"
                   ].join(" ")}
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
-            <div className={`${PANEL_CARD_CLASSES}`}>
+            <div className="p-4 space-y-4">
               {renderTabContent()}
             </div>
           </div>
@@ -1965,7 +2593,7 @@ export default function TreeEditor(){
                   <span className="text-slate-700 w-10 text-right">{Math.round(yGap)}</span>
                   <input
                     type="range"
-                    min={12}
+                    min={1}
                     max={200}
                     step={2}
                     value={yGap}
@@ -1977,43 +2605,64 @@ export default function TreeEditor(){
               <button
                 className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
                 disabled={!canUndo}
+                aria-label="Undo"
                 onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
               >
-                Undo
+                ↺
               </button>
               <button
                 className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
                 disabled={!canRedo}
+                aria-label="Redo"
                 onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
               >
-                Redo
+                ↻
               </button>
               <button
                 type="button"
                 className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
                 onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
-                aria-label="Search leaves"
+                aria-label={t("searchLeaves","Search leaves")}
               >
                 <IconSearch />
+              </button>
+              <button
+                className={`${SECONDARY_BUTTON_CLASSES} text-base`}
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  fitToViewport();
+                }}
+              >
+                {t("fitView","Fit view")}
               </button>
               <button
                 className={`${BUTTON_CLASSES} text-base`}
                 onClick={(e)=>{
                   e.stopPropagation();
                   setSelection(null);
+                  setMultiSelection([]);
                   setMenu({...menu,visible:false});
                   setSearchPopoverOpen(false);
                   applyAutoHorizontalScale();
                   requestAnimationFrame(()=>autoAdjustVerticalSpacing());
                 }}
               >
-                Reset view
+                {t("resetView","Reset view")}
+              </button>
+              <button
+                className={`${branchEditMode ? `${BUTTON_CLASSES} bg-[#dba633]/30 hover:bg-[#dba633]/30` : SECONDARY_BUTTON_CLASSES} text-base`}
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  setBranchEditMode(v=>!v);
+                }}
+              >
+                {branchEditMode ? t("dragNodesOn","Drag nodes mode: ON") : t("dragNodesOff","Drag nodes mode: OFF")}
               </button>
               {searchPopoverOpen && (
                 <div className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="font-semibold">Search leaves</span>
-                    <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>Close</button>
+                    <span className="font-semibold">{t("searchLeaves","Search leaves")}</span>
+                    <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>{t("close","Close")}</button>
                   </div>
                   <div className="space-y-3">
                     <input
@@ -2024,7 +2673,7 @@ export default function TreeEditor(){
                     />
                     <label className="flex items-center gap-2 text-xs">
                       <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
-                      Use regular expressions
+                      {t("regex","Use regular expressions")}
                     </label>
                     {hasSearchMatches && (
                       <div className="flex items-center justify-between text-xs text-slate-600">
@@ -2048,7 +2697,7 @@ export default function TreeEditor(){
                       </div>
                     )}
                     <div className="flex items-center justify-between">
-                      <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>Clear</button>
+                      <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>{t("clear","Clear")}</button>
                       {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
                     </div>
                   </div>
@@ -2074,9 +2723,10 @@ export default function TreeEditor(){
                 const childData = (target.d?.data ?? {}) as TreeNode;
                 const parentId = parentData.__id;
                 const childId = childData.__id;
-                const childSelected = childId !== undefined && selection?.type==='node' && selection?.id===childId;
-                const isSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
-                const highlightActive = childSelected || isSelected;
+                const linkKey = parentId !== undefined && childId !== undefined ? linkSelectionKey(parentId, childId) : null;
+                const linkMultiSelected = linkKey ? multiSelectionKeySet.has(linkKey) : false;
+                const linkSelected = Boolean(selection && selection.type==='link' && parentId !== undefined && childId !== undefined && selection.parentId===parentId && selection.childId===childId);
+                const highlightActive = linkSelected || linkMultiSelected;
                 const customColor = childData.__edgeColor;
                 const customWidth = typeof childData.__edgeWidth === 'number' && Number.isFinite(childData.__edgeWidth) ? childData.__edgeWidth : null;
                 const highlightColor = '#f0a608ff';
@@ -2088,9 +2738,9 @@ export default function TreeEditor(){
                 const branchLenValue = typeof childData.length === 'number' && Number.isFinite(childData.length) ? childData.length : 0;
                 const supportValue = childData.name;
                 const parentKey = parentId ?? `p-${idx}`;
-                const childKey = childId ?? `c-${idx}`;
+                const childKeyLabel = childId ?? `c-${idx}`;
                 return (
-                  <g key={`link-${parentKey}-${childKey}-${idx}`} className="cursor-pointer" onClick={(e)=>onClickLink(link,e)}>
+                  <g key={`link-${parentKey}-${childKeyLabel}-${idx}`} className="cursor-pointer" onClick={(e)=>onClickLink(link,e)}>
                     <path
                       d={`M${source.x},${source.y} V${target.y} H${target.x}`}
                       fill="none"
@@ -2159,7 +2809,9 @@ export default function TreeEditor(){
               {/* Nodes */}
               {nodes.map((n,i)=>{
                 const nodeId = n.d.data.__id;
-                const selected=nodeId !== undefined && selection?.type==='node' && selection?.id===nodeId;
+                const baseSelected=nodeId !== undefined && selection?.type==='node' && selection?.id===nodeId;
+                const multiSelected = nodeId !== undefined && multiSelectionKeySet.has(nodeSelectionKey(nodeId));
+                const selected = Boolean(baseSelected || multiSelected);
                 const isDisplayLeaf=!n.d.children?.length;
                 const collapsedTipCount = typeof n.d.data.__collapsedTipCount === "number" ? n.d.data.__collapsedTipCount : undefined;
                 const isCollapsedLeaf = Boolean(isDisplayLeaf && n.d.data.__isCollapsedPlaceholder);
@@ -2171,8 +2823,12 @@ export default function TreeEditor(){
                   : null;
                 const r = customRadius ?? defaultRadius;
                 const baseCircleFill = nodeColor || (isDisplayLeaf ? '#111827' : '#374151');
-                const circleStrokeColor = selected ? '#f0a608ff' : 'transparent';
-                const circleStrokeWidth = selected ? Math.max(1.2, r * 0.75) : 0;
+                const circleStrokeColor = selected
+                  ? '#fbbf24'
+                  : (branchEditActive ? '#fb923c' : 'transparent');
+                const circleStrokeWidth = selected
+                  ? Math.max(1.2, r * 0.75)
+                  : (branchEditActive ? Math.max(1, r * 0.35) : 0);
                 const collapsedMetrics = isCollapsedLeaf ? getCollapsedTriangleMetrics(collapsedTipCount) : null;
                 const collapsedWidth = collapsedMetrics?.width ?? 0;
                 const textStartX = collapsedWidth + labelPadding;
@@ -2183,19 +2839,24 @@ export default function TreeEditor(){
                 const displayLabelText = isCollapsedLeaf ? collapsedLabelText : leafLabelText;
                 const isSearchHit = nodeId !== undefined && searchSet.has(nodeId);
                 const isActiveSearchTarget = activeSearchNodeId !== null && nodeId === activeSearchNodeId;
-                const highlightPaddingX = 8;
-                const highlightPaddingY = 4;
                 const labelBaselineY = leafLabelOffsetY;
                 const shouldItalicize = italic && (isSimpleLeaf || isCollapsedLeaf);
-                const highlightable = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
-                const estimatedLabelWidth = highlightable ? measureLabelWidth(displayLabelText, leafLabelSize, shouldItalicize) : 0;
-                const highlightWidth = Math.max(estimatedLabelWidth + highlightPaddingX * 2, leafLabelSize * 2);
-                const highlightHeight = leafLabelSize + highlightPaddingY * 2;
-                const highlightX = textStartX - highlightPaddingX;
-                const highlightY = labelBaselineY - highlightHeight / 2;
+                const customLabelFont = isSimpleLeaf && typeof n.d.data.__labelFontSize === "number" && Number.isFinite(n.d.data.__labelFontSize) ? Math.max(6, n.d.data.__labelFontSize as number) : null;
+                const labelFontSize = customLabelFont ?? leafLabelSize;
+                const labelBold = isSimpleLeaf && Boolean(n.d.data.__labelBold);
+                const selectedLeaf = selected && (isSimpleLeaf || isCollapsedLeaf);
+                const searchHighlight = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
+                const highlightMode = isActiveSearchTarget
+                  ? "search-active"
+                  : (searchHighlight ? "search" : (selectedLeaf ? "selection" : null));
+                const showHighlight = highlightMode !== null;
+                const highlightStroke = highlightMode === "selection"
+                  ? "#d97706"
+                  : (highlightMode === "search-active" ? "#f59e0b" : "#f4c84a");
+                const highlightStrokeWidth = highlightMode === "selection" ? 2.2 : (highlightMode === "search-active" ? 2 : 1.6);
                 const labelClasses = [
                   "select-none",
-                  highlightable ? "font-semibold" : "",
+                  labelBold ? "font-bold" : (showHighlight ? "font-semibold" : ""),
                   shouldItalicize ? "italic" : "",
                   isCollapsedLeaf ? "font-medium" : ""
                 ].filter(Boolean).join(" ");
@@ -2203,18 +2864,24 @@ export default function TreeEditor(){
                 const collapsedStrokeColor = nodeColor || '#286699';
                 const collapsedFillColor = nodeColor || '#286699';
                 const labelFill = isCollapsedLeaf
-                  ? (isSearchHit ? '#b91c1c' : collapsedStrokeColor)
-                  : (isSimpleLeaf ? (isSearchHit ? '#b91c1c' : baseLeafFill) : '#374151');
+                  ? collapsedStrokeColor
+                  : (isSimpleLeaf ? baseLeafFill : '#374151');
                 const collapsedHalfHeight = collapsedMetrics ? collapsedMetrics.height/2 : 0;
                 return (
-                  <g key={i} transform={`translate(${n.x},${n.y})`} className="cursor-pointer" onClick={(e)=>onClickNode(n,e)}>
+                  <g
+                    key={i}
+                    transform={`translate(${n.x},${n.y})`}
+                    className="cursor-pointer"
+                    onClick={(e)=>onClickNode(n,e)}
+                    onMouseDown={(e)=>handleNodeMouseDown(n,e)}
+                  >
                     {isCollapsedLeaf && (
                       <title>{`Collapsed subtree (${collapsedTipCount ?? 0} leaf${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
                     )}
-                    {showNodeDots && (
+                    {showNodeDotsEffective && (
                       <circle
-                        r={r}
-                        fill={baseCircleFill}
+                        r={branchEditActive ? Math.max(r + 1.5, isDisplayLeaf ? 4 : 3) : r}
+                        fill={branchEditActive ? (isDisplayLeaf ? "#0f172a" : "#1f2937") : baseCircleFill}
                         stroke={circleStrokeColor}
                         strokeWidth={circleStrokeWidth}
                         data-base-fill={baseCircleFill}
@@ -2230,28 +2897,20 @@ export default function TreeEditor(){
                         pointerEvents="none"
                       />
                     )}
-                    {highlightable && (
-                      <rect
-                        x={highlightX}
-                        y={highlightY}
-                        width={highlightWidth}
-                        height={highlightHeight}
-                        rx={highlightHeight/3}
-                        fill={isActiveSearchTarget ? "#fde047" : "#fef08a"}
-                        stroke={isActiveSearchTarget ? "#f59e0b" : "#f4c84a"}
-                        strokeWidth={isActiveSearchTarget ? 1.5 : 1}
-                        pointerEvents="none"
-                      />
-                    )}
                     {isSimpleLeaf && (
                       <text
                         x={textStartX}
                         y={labelBaselineY}
-                        fontSize={leafLabelSize}
+                        fontSize={labelFontSize}
                         fill={labelFill}
                         className={labelClasses}
                         dominantBaseline="middle"
                         alignmentBaseline="middle"
+                        stroke={showHighlight ? highlightStroke : undefined}
+                        strokeWidth={showHighlight ? highlightStrokeWidth : undefined}
+                        strokeLinejoin={showHighlight ? "round" : undefined}
+                        paintOrder={showHighlight ? "stroke fill" : undefined}
+                        data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -2266,6 +2925,11 @@ export default function TreeEditor(){
                         className={labelClasses}
                         dominantBaseline="middle"
                         alignmentBaseline="middle"
+                        stroke={showHighlight ? highlightStroke : undefined}
+                        strokeWidth={showHighlight ? highlightStrokeWidth : undefined}
+                        strokeLinejoin={showHighlight ? "round" : undefined}
+                        paintOrder={showHighlight ? "stroke fill" : undefined}
+                        data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -2291,7 +2955,7 @@ export default function TreeEditor(){
           </div>
 
           {/* Context menu */}
-          {menu.visible && (
+          {menu.visible && activeTab!=="selection" && (
             <div className="absolute z-40 bg-white border border-slate-200 rounded-2xl shadow-xl px-3 py-3 text-[0.95rem] text-slate-800" style={{ left:menu.left, top:menu.top, width:260 }} onClick={(e)=>e.stopPropagation()}>
               <div className="flex items-center justify-between mb-3 cursor-move select-none text-sm font-medium text-slate-600" onMouseDown={startMenuDrag}>
                 <span>Selection actions</span>
