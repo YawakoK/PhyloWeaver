@@ -77,7 +77,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     uploadHelper: "Uploaded text appears below.",
     applyNewick: "Apply NEWICK",
     statsTitle: "Current tree stats",
-    tips: "Tips",
+    tips: "Leaves",
     internalNodes: "Internal nodes",
     branches: "Branches",
     maxDepth: "Max depth",
@@ -113,12 +113,12 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     reset: "Reset",
     textExports: "Text exports",
     leafList: "Leaf list",
-    currentNewick: "Current NEWICK",
+    currentNewick: "NEWICK",
     copy: "Copy",
     copied: "Copied!",
     copyFailed: "Copy failed",
     imageExports: "Image exports",
-    italicTips: "Italic tip labels",
+    italicTips: "Italic leaf labels",
     scaleLabel: "Scale (x)",
     fitView: "Fit view",
     resetView: "Reset view",
@@ -549,6 +549,8 @@ export default function TreeEditor(){
   const suppressClickRef = useRef(false);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
   const currentNewick = useMemo(()=>toNewick(tree, { includeLengths: layout!=="cladogram" }),[tree, layout]);
+  const [currentNewickEditable,setCurrentNewickEditable]=useState(currentNewick);
+  useEffect(()=>{ setCurrentNewickEditable(currentNewick); },[currentNewick]);
   const newickStats = useMemo(()=>{
     let internalNodes=0;
     let branchCount=0;
@@ -1110,15 +1112,15 @@ export default function TreeEditor(){
 
   const handleHorizontalScaleSlider = useCallback((value: number)=>{
     userSetWidthRef.current = true;
+    userAdjustedZoomRef.current = true;
     setXScaleWidth(clampHorizontalWidth(value));
-    requestAnimationFrame(()=>fitToViewport());
-  },[clampHorizontalWidth, fitToViewport]);
+  },[clampHorizontalWidth]);
 
   const handleManualYGapChange = useCallback((value: number)=>{
     userSetYGapRef.current = true;
     setYGap(prev=>{
       const numeric = Number.isFinite(value) ? value : prev;
-      const next = Math.max(12, Math.min(200, numeric));
+      const next = Math.max(1, Math.min(200, numeric));
       if(next === prev) return prev;
       requestAnimationFrame(()=>fitToViewport());
       return next;
@@ -1160,6 +1162,16 @@ export default function TreeEditor(){
     if(Number.isNaN(numeric) || numeric < 0) return;
     actionEditNodeSize(numeric, { keepMenu:true });
   },[selection, actionEditNodeSize]);
+
+  const handleCurrentNewickEditableChange = useCallback((value: string)=>{
+    setCurrentNewickEditable(value);
+    try{
+      const parsed = ensureIds(parseNewick(value));
+      commitTree(parsed);
+    }catch(err){
+      // ignore invalid edits until complete
+    }
+  },[commitTree]);
 
   const focusOnPoint = useCallback((targetX: number, targetY: number, options?: { scale?: number; preserveScale?: boolean })=>{
     const svgNode = svgRef.current;
@@ -1256,7 +1268,7 @@ export default function TreeEditor(){
       setYGap(spacing);
       requestAnimationFrame(()=>fitToViewport());
     }
-  },[computeAutoVerticalSpacing, fitToViewport, yGap, autoLayoutVersion, xScaleWidth]);
+  },[computeAutoVerticalSpacing, fitToViewport, yGap, autoLayoutVersion]);
   useEffect(()=>{
     // Auto-fit on initial render only
     if(!didFirstFitRef.current){
@@ -1858,7 +1870,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
             <p className="text-sm text-slate-600">{t("uploadHelper","Uploaded text appears below.")}</p>
             <div className="space-y-1">
               <textarea
-                className={`${INPUT_CLASSES} w-full h-32 resize-y ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
+                className={`${INPUT_CLASSES} w-full h-20 resize-y ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
                 placeholder="Paste NEWICK string"
                 value={rawText}
                 onChange={(e)=>setRawText(e.target.value)}
@@ -1891,9 +1903,13 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     <div className="font-semibold text-slate-900">{newickStats.totalLength.toFixed(4)}</div>
                   </div>
                 </div>
-                <div className="mt-3 space-y-1 text-sm text-slate-700 font-mono break-words">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("currentNewick","Current NEWICK")}</span>
-                  <p>{currentNewick}</p>
+                <div className="mt-3 space-y-1 text-lg text-slate-700 font-mono break-words">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("currentNewick","NEWICK")}</span>
+                  <textarea
+                    className={`${INPUT_CLASSES} w-full min-h-[120px] resize-y font-mono text-base`}
+                    value={currentNewickEditable}
+                    onChange={(e)=>handleCurrentNewickEditableChange(e.target.value)}
+                  />
                 </div>
               </div>
             )}
@@ -2507,7 +2523,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   <span className="text-slate-700 w-10 text-right">{Math.round(yGap)}</span>
                   <input
                     type="range"
-                    min={12}
+                    min={1}
                     max={200}
                     step={2}
                     value={yGap}
@@ -2563,7 +2579,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 {t("resetView","Reset view")}
               </button>
               <button
-                className={`${branchEditMode ? BUTTON_CLASSES : SECONDARY_BUTTON_CLASSES} text-base`}
+                className={`${branchEditMode ? `${BUTTON_CLASSES} bg-[#dba633]/30 hover:bg-[#dba633]/30` : SECONDARY_BUTTON_CLASSES} text-base`}
                 onClick={(e)=>{
                   e.stopPropagation();
                   setBranchEditMode(v=>!v);
