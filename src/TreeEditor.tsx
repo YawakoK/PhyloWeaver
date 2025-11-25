@@ -65,6 +65,141 @@ const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005af
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
 const READABLE_FIT_SCALE = 0.85;
+type Locale = "en" | "jp";
+const UI_TEXT: Record<Locale, Record<string, string>> = {
+  en: {
+    dataTab: "Data",
+    selectionTab: "Selection",
+    renderingTab: "Rendering",
+    exportTab: "Export",
+    uploadNewick: "Upload NEWICK",
+    loadExample: "Load example",
+    uploadHelper: "Uploaded text appears below.",
+    applyNewick: "Apply NEWICK",
+    statsTitle: "Current tree stats",
+    tips: "Tips",
+    internalNodes: "Internal nodes",
+    branches: "Branches",
+    maxDepth: "Max depth",
+    totalLength: "Total branch length",
+    layoutPreset: "Layout preset",
+    layoutLabel: "Layout",
+    edgeWidth: "Edge width",
+    verticalSpacing: "Vertical spacing",
+    horizontalScale: "Horizontal scale",
+    showSection: "Show",
+    internalNodeLabelsSection: "Internal node labels",
+    branchLengthsSection: "Branch lengths",
+    supportValues: "Support values",
+    nodeDots: "Node dots",
+    textSize: "Text size",
+    offset: "Offset",
+    leafOffset: "Leaf offset",
+    phylogram: "Phylogram",
+    cladogram: "Cladogram",
+    activeSelection: "Active selection",
+    reroot: "Reroot",
+    flip: "Flip",
+    addLeaf: "Add leaf",
+    delete: "Delete",
+    edgeLabelColor: "Edge / label color",
+    lengthLabel: "Length",
+    widthLabel: "Width",
+    nodeSize: "Node size",
+    showNodes: "Show nodes",
+    nameLabel: "Name",
+    leafLabelSize: "Leaf label size",
+    bold: "Bold",
+    reset: "Reset",
+    textExports: "Text exports",
+    leafList: "Leaf list",
+    currentNewick: "Current NEWICK",
+    copy: "Copy",
+    copied: "Copied!",
+    copyFailed: "Copy failed",
+    imageExports: "Image exports",
+    italicTips: "Italic tip labels",
+    scaleLabel: "Scale (x)",
+    fitView: "Fit view",
+    resetView: "Reset view",
+    dragNodesOn: "Drag nodes mode: ON",
+    dragNodesOff: "Drag nodes mode: OFF",
+    searchLeaves: "Search leaves",
+    clear: "Clear",
+    close: "Close",
+    headerTagline: "Interactive editor for phylogenies",
+    png: "PNG",
+    svg: "SVG",
+    pdfVector: "PDF (vector)",
+    tipStyling: "Tip styling"
+  },
+  jp: {
+    dataTab: "データ",
+    selectionTab: "選択",
+    renderingTab: "描画",
+    exportTab: "エクスポート",
+    uploadNewick: "NEWICKをアップロード",
+    loadExample: "例を読み込む",
+    uploadHelper: "読み込んだテキストは下に表示されます。",
+    applyNewick: "NEWICKを適用",
+    statsTitle: "現在の系統樹情報",
+    tips: "葉",
+    internalNodes: "内部ノード",
+    branches: "枝",
+    maxDepth: "最大深さ",
+    totalLength: "枝長合計",
+    layoutPreset: "レイアウト",
+    layoutLabel: "レイアウト",
+    edgeWidth: "枝の太さ",
+    verticalSpacing: "上下間隔",
+    horizontalScale: "横幅スケール",
+    showSection: "表示",
+    internalNodeLabelsSection: "内部ノードラベル",
+    branchLengthsSection: "枝長",
+    supportValues: "サポート値",
+    nodeDots: "ノード表示",
+    textSize: "文字サイズ",
+    offset: "オフセット",
+    leafOffset: "葉ラベル位置",
+    phylogram: "フィログラム",
+    cladogram: "クラドグラム",
+    activeSelection: "選択中",
+    reroot: "再ルート化",
+    flip: "反転",
+    addLeaf: "葉を追加",
+    delete: "削除",
+    edgeLabelColor: "枝／ラベル色",
+    lengthLabel: "長さ",
+    widthLabel: "太さ",
+    nodeSize: "ノードサイズ",
+    showNodes: "ノード表示",
+    nameLabel: "名前",
+    leafLabelSize: "葉ラベルサイズ",
+    bold: "太字",
+    reset: "リセット",
+    textExports: "テキスト出力",
+    leafList: "葉リスト",
+    currentNewick: "現在のNEWICK",
+    copy: "コピー",
+    copied: "コピーしました",
+    copyFailed: "コピー失敗",
+    imageExports: "画像出力",
+    italicTips: "葉ラベルを斜体にする",
+    scaleLabel: "倍率",
+    fitView: "全体表示",
+    resetView: "リセット",
+    dragNodesOn: "ノードドラッグ: ON",
+    dragNodesOff: "ノードドラッグ: OFF",
+    searchLeaves: "葉を検索",
+    clear: "クリア",
+    close: "閉じる",
+    headerTagline: "系統樹インタラクティブエディタ",
+    png: "PNG",
+    svg: "SVG",
+    pdfVector: "PDF（ベクター）",
+    tipStyling: "葉ラベル調整"
+  }
+};
 
 type ColorSelectorProps = {
   selectedColor?: string | null;
@@ -357,6 +492,8 @@ export default function TreeEditor(){
     return `Parentheses mismatch in NEWICK string.\nFound ${open} "(" and ${close} ")".`;
   },[rawText]);
   const [tree,setTree]=useState<TreeNode>(()=>ensureIds(parseNewick(EXAMPLE)));
+  const [lang,setLang]=useState<Locale>("en");
+  const t = useCallback((key: string, fallback: string)=> UI_TEXT[lang]?.[key] ?? fallback,[lang]);
   const [historyStack, setHistoryStack] = useState<TreeNode[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const historyInitRef = useRef(false);
@@ -1700,12 +1837,12 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     pdf.save('tree.pdf');
   }
 
-  const tabs: { id: typeof activeTab; label: string }[] = [
-    { id: "data", label: "Data" },
-    { id: "selection", label: "Selection" },
-    { id: "rendering", label: "Rendering" },
-    { id: "export", label: "Export" },
-  ];
+  const tabs = useMemo<{ id: typeof activeTab; label: string }[]>(()=>[
+    { id: "data", label: t("dataTab","Data") },
+    { id: "selection", label: t("selectionTab","Selection") },
+    { id: "rendering", label: t("renderingTab","Rendering") },
+    { id: "export", label: t("exportTab","Export") },
+  ],[t]);
   const renderTabContent = () => {
     switch (activeTab) {
       case "data":
@@ -1713,65 +1850,69 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
           <div className="space-y-4 text-[0.95rem]">
             <div className="flex gap-3 items-center flex-wrap">
               <label className={`${BUTTON_CLASSES} inline-flex items-center justify-center`}>
-                <span>Upload NEWICK</span>
+                <span>{t("uploadNewick","Upload NEWICK")}</span>
                 <input type="file" accept=".nwk,.newick,.tree,.tre,.txt" className="hidden" onChange={(e)=>handleFileLoad(e.target.files)} />
               </label>
-              <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>Load example</button>
+              <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>{t("loadExample","Load example")}</button>
             </div>
-            <p className="text-sm text-slate-600">Uploaded text appears below.</p>
+            <p className="text-sm text-slate-600">{t("uploadHelper","Uploaded text appears below.")}</p>
             <div className="space-y-1">
               <textarea
-                className={`${INPUT_CLASSES} w-full h-32 resize-none ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
+                className={`${INPUT_CLASSES} w-full h-32 resize-y ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
                 placeholder="Paste NEWICK string"
                 value={rawText}
                 onChange={(e)=>setRawText(e.target.value)}
               />
               {newickWarning && <p className="text-sm font-semibold text-red-600 whitespace-pre-line">{newickWarning}</p>}
             </div>
-            <button className={`${BUTTON_CLASSES} w-full`} onClick={applyText}>Apply NEWICK</button>
+            <button className={`${BUTTON_CLASSES} w-full`} onClick={applyText}>{t("applyNewick","Apply NEWICK")}</button>
             {newickStats && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current tree stats</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("statsTitle","Current tree stats")}</div>
                 <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-2 text-[0.85rem]">
                   <div>
-                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Tips</div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("tips","Tips")}</div>
                     <div className="font-semibold text-slate-900">{newickStats.tips}</div>
                   </div>
                   <div>
-                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Internal</div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("internalNodes","Internal nodes")}</div>
                     <div className="font-semibold text-slate-900">{newickStats.internalNodes}</div>
                   </div>
                   <div>
-                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Branches</div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("branches","Branches")}</div>
                     <div className="font-semibold text-slate-900">{newickStats.branchCount}</div>
                   </div>
                   <div>
-                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">Max depth</div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500">{t("maxDepth","Max depth")}</div>
                     <div className="font-semibold text-slate-900">{newickStats.maxDepth}</div>
                   </div>
                   <div>
-                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500 whitespace-nowrap">Total length</div>
+                    <div className="text-[0.7rem] uppercase tracking-wide text-slate-500 whitespace-nowrap">{t("totalLength","Total branch length")}</div>
                     <div className="font-semibold text-slate-900">{newickStats.totalLength.toFixed(4)}</div>
                   </div>
+                </div>
+                <div className="mt-3 space-y-1 text-sm text-slate-700 font-mono break-words">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("currentNewick","Current NEWICK")}</span>
+                  <p>{currentNewick}</p>
                 </div>
               </div>
             )}
             <div className="pt-2 border-t border-slate-200">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Layout preset</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("layoutPreset","Layout preset")}</span>
               <div className="mt-2 flex gap-2 flex-wrap">
                 <button
                   className={`flex-1 min-w-[120px] rounded-xl border px-3 py-2 text-sm font-semibold transition flex items-center justify-center gap-2 ${layout==="phylogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-600 hover:border-[#286699]"}`}
                   onClick={()=>handleLayoutModeChange("phylogram")}
                 >
                   <IconLayoutPhylo active={layout==="phylogram"} />
-                  <span>Phylogram</span>
+                  <span>{t("phylogram","Phylogram")}</span>
                 </button>
                 <button
                   className={`flex-1 min-w-[120px] rounded-xl border px-3 py-2 text-sm font-semibold transition flex items-center justify-center gap-2 ${layout==="cladogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-600 hover:border-[#286699]"}`}
                   onClick={()=>handleLayoutModeChange("cladogram")}
                 >
                   <IconLayoutClado active={layout==="cladogram"} />
-                  <span>Cladogram</span>
+                  <span>{t("cladogram","Cladogram")}</span>
                 </button>
               </div>
             </div>
@@ -1780,27 +1921,27 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
       case "selection":
         return (
           <div className="space-y-3 text-[0.95rem]">
-            <div className="text-slate-600">Active selection: <span className="font-mono text-slate-800">{selInfo}</span></div>
+            <div className="text-slate-600">{t("activeSelection","Active selection")}: <span className="font-mono text-slate-800">{selInfo}</span></div>
             <div className="grid grid-cols-2 gap-2">
               <button className={`${BUTTON_CLASSES} flex flex-row items-center justify-center gap-3 py-3`} onClick={actionReroot}>
                 <IconReroot />
-                <span className="whitespace-nowrap">Reroot</span>
+                <span className="whitespace-nowrap">{t("reroot","Reroot")}</span>
               </button>
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionFlipNode}>
-                <IconFlip /> <span>Flip</span>
+                <IconFlip /> <span>{t("flip","Flip")}</span>
               </button>
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionAddLeaf}>
-                <IconAddLeaf /> <span>Add leaf</span>
+                <IconAddLeaf /> <span>{t("addLeaf","Add leaf")}</span>
               </button>
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionDeleteSelected}>
-                <IconDelete /> <span>Delete</span>
+                <IconDelete /> <span>{t("delete","Delete")}</span>
               </button>
               <div className="col-span-2 space-y-2">
-                <span className="text-sm font-medium text-slate-700">Edge / label color</span>
+                <span className="text-sm font-medium text-slate-700">{t("edgeLabelColor","Edge / label color")}</span>
                 <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} />
               </div>
               <div className="col-span-2 space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Length</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("lengthLabel","Length")}</span>
                 <input
                   type="number"
                   min={0}
@@ -1813,7 +1954,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 />
               </div>
               <div className="col-span-2 space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("widthLabel","Width")}</span>
                 <input
                   type="number"
                   min={0}
@@ -1828,14 +1969,14 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               {selection?.type==='node' && (
                 <div className="col-span-2 space-y-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Node size</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nodeSize","Node size")}</span>
                     <label className="flex items-center gap-1 text-xs text-slate-500">
                       <input
                         type="checkbox"
                         checked={showNodeDots}
                         onChange={(e)=>setShowNodeDots(e.target.checked)}
                       />
-                      <span>Show nodes</span>
+                      <span>{t("showNodes","Show nodes")}</span>
                     </label>
                   </div>
                   <input
@@ -1860,14 +2001,14 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 </div>
               )}
               <div className="col-span-2 space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Name</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nameLabel","Name")}</span>
                 <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionRenameTip(e.currentTarget.value); }} />
               </div>
               {selectedLeaf && (
                 <div className="col-span-2 space-y-1 mt-3">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Leaf label size</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("leafLabelSize","Leaf label size")}</span>
                       <label className="flex items-center gap-1 text-xs text-slate-500">
                         <input
                           type="checkbox"
@@ -1878,7 +2019,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                             actionSetTipLabelBold(next);
                           }}
                         />
-                        <span>Bold</span>
+                        <span>{t("bold","Bold")}</span>
                       </label>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1902,7 +2043,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                           actionSetTipLabelFontSize(null);
                         }}
                       >
-                        Reset
+                        {t("reset","Reset")}
                       </button>
                     </div>
                   </div>
@@ -1915,32 +2056,32 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
         return (
           <div className="space-y-3 text-[0.95rem]">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-slate-600">Layout</span>
+              <span className="text-slate-600">{t("layoutLabel","Layout")}</span>
               <div className="flex gap-2">
                 <button
                   className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${layout==="phylogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-500"}`}
                   onClick={()=>handleLayoutModeChange("phylogram")}
                 >
                   <IconLayoutPhylo active={layout==="phylogram"} />
-                  <span className="text-sm font-medium">Phylogram</span>
+                  <span className="text-sm font-medium">{t("phylogram","Phylogram")}</span>
                 </button>
                 <button
                   className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${layout==="cladogram"?"border-[#286699] bg-[#286699]/15 text-[#286699]":"border-slate-200 bg-white text-slate-500"}`}
                   onClick={()=>handleLayoutModeChange("cladogram")}
                 >
                   <IconLayoutClado active={layout==="cladogram"} />
-                  <span className="text-sm font-medium">Cladogram</span>
+                  <span className="text-sm font-medium">{t("cladogram","Cladogram")}</span>
                 </button>
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Edge width</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("edgeWidth","Edge width")}</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={edgeWidth} step={0.5} onChange={(e)=>setEdgeWidth(parseFloat(e.target.value)||1)} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Leaf label size</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("leafLabelSize","Leaf label size")}</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={leafLabelSize} onChange={(e)=>setLeafLabelSize(parseFloat(e.target.value)||15)} />
             </div>
             <div className="flex items-center justify-between gap-3">
-              <label className="text-slate-600">Leaf offset</label>
+              <label className="text-slate-600">{t("leafOffset","Leaf offset")}</label>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500">X</span>
                 <input
@@ -1964,10 +2105,10 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Vertical spacing</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("verticalSpacing","Vertical spacing")}</label>
               <input type="number" className={`${INPUT_CLASSES} w-24`} value={yGap} onChange={(e)=>handleManualYGapChange(parseFloat(e.target.value))} />
             </div>
-            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">Horizontal scale</label>
+            <div className="flex items-center justify-between gap-3"><label className="text-slate-600">{t("horizontalScale","Horizontal scale")}</label>
               <input
                 type="number"
                 className={`${INPUT_CLASSES} w-28`}
@@ -1983,21 +2124,21 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               />
             </div>
             <div className="pt-3 border-t border-slate-200 space-y-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Show</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("showSection","Show")}</span>
               <div className="space-y-3">
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showNodeLabels} onChange={(e)=>setShowNodeLabels(e.target.checked)} />
-                    <span>Internal node labels</span>
+                    <span>{t("internalNodeLabelsSection","Internal node labels")}</span>
                   </label>
                   {showNodeLabels && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>Text size</span>
+                        <span>{t("textSize","Text size")}</span>
                         <input type="number" className={`${INPUT_CLASSES} w-20`} value={nodeLabelSize} onChange={(e)=>setNodeLabelSize(parseFloat(e.target.value)||11)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span>Offset</span>
+                        <span>{t("offset","Offset")}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500">X</span>
                           <input
@@ -2029,16 +2170,16 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showBranchLen} onChange={(e)=>setShowBranchLen(e.target.checked)} />
-                    <span>Branch lengths</span>
+                    <span>{t("branchLengthsSection","Branch lengths")}</span>
                   </label>
                   {showBranchLen && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>Text size</span>
+                        <span>{t("textSize","Text size")}</span>
                         <input type="number" className={`${INPUT_CLASSES} w-20`} value={branchLabelSize} onChange={(e)=>setBranchLabelSize(parseFloat(e.target.value)||10)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span>Offset</span>
+                        <span>{t("offset","Offset")}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500">X</span>
                           <input
@@ -2085,7 +2226,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showBootstrap} onChange={(e)=>setShowBootstrap(e.target.checked)} />
-                    <span>Support values</span>
+                    <span>{t("supportValues","Support values")}</span>
                   </label>
                   {showBootstrap && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
@@ -2126,7 +2267,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 <div className="rounded-2xl border border-slate-200 p-3 bg-white/80 shadow-sm space-y-3">
                   <label className="flex items-center gap-2 text-slate-700 font-medium">
                     <input type="checkbox" checked={showNodeDots} onChange={(e)=>setShowNodeDots(e.target.checked)} />
-                    <span>Node dots</span>
+                    <span>{t("nodeDots","Node dots")}</span>
                   </label>
                   {showNodeDots && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
@@ -2169,20 +2310,20 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
         return (
           <div className="space-y-4 mt-2 text-[0.95rem]">
             <div className="space-y-3 border-b border-slate-200 pb-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Text exports</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("textExports","Text exports")}</div>
               <div className="grid grid-cols-2 gap-2">
                 <button className={BUTTON_CLASSES} onClick={downloadNewick}>NEWICK</button>
-                <button className={BUTTON_CLASSES} onClick={downloadLeafList}>Leaf list</button>
+                <button className={BUTTON_CLASSES} onClick={downloadLeafList}>{t("leafList","Leaf list")}</button>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-500">
-                  <span>Current NEWICK</span>
+                  <span>{t("currentNewick","Current NEWICK")}</span>
                   <button
                     type="button"
                     className="text-[0.75rem] font-semibold text-[#286699] hover:text-[#17476b]"
                     onClick={copyNewickToClipboard}
                   >
-                    {newickCopyState==="copied"?"Copied!":newickCopyState==="error"?"Copy failed":"Copy"}
+                    {newickCopyState==="copied"?t("copied","Copied!"):newickCopyState==="error"?t("copyFailed","Copy failed"):t("copy","Copy")}
                   </button>
                 </div>
                 <textarea
@@ -2194,15 +2335,15 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               </div>
             </div>
             <div className="space-y-3 pt-1">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Image exports</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("imageExports","Image exports")}</div>
               <label className="flex items-center gap-2 text-slate-600 text-sm">
                 <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
-                <span className="font-medium">Italic tip labels</span>
+                <span className="font-medium">{t("italicTips","Italic tip labels")}</span>
               </label>
               <div className="grid grid-cols-2 gap-2 items-center">
-                <button className={BUTTON_CLASSES} onClick={downloadPNG}>PNG</button>
+                <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
                 <label className="flex items-center justify-end gap-3 text-sm text-slate-600 text-right">
-                  <span className="font-medium">Scale (x)</span>
+                  <span className="font-medium">{t("scaleLabel","Scale (x)")}</span>
                   <input
                     type="number"
                     className={`${INPUT_CLASSES} w-20`}
@@ -2212,8 +2353,8 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))}
                   />
                 </label>
-                <button className={BUTTON_CLASSES} onClick={downloadSVG}>SVG</button>
-                <button className={BUTTON_CLASSES} onClick={downloadPDF}>PDF (vector)</button>
+                <button className={BUTTON_CLASSES} onClick={downloadSVG}>{t("svg","SVG")}</button>
+                <button className={BUTTON_CLASSES} onClick={downloadPDF}>{t("pdfVector","PDF (vector)")}</button>
               </div>
             </div>
           </div>
@@ -2276,19 +2417,33 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
         <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
-            <span className="text-sm text-slate-500">Interactive editor for phylogenies</span>
+            <span className="text-sm text-slate-500">{t("headerTagline","Interactive editor for phylogenies")}</span>
           </div>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
-          >
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
-            </svg>
-            <span>GitHub</span>
-          </a>
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-full border border-[#286699]/30 bg-white/80 text-sm font-semibold overflow-hidden">
+              {(["en","jp"] as Locale[]).map((code)=>(
+                <button
+                  key={code}
+                  type="button"
+                  onClick={()=>setLang(code)}
+                  className={`px-3 py-1 transition ${lang===code?"bg-[#286699] text-white":"text-[#286699]"}`}
+                >
+                  {code.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
+              </svg>
+              <span>GitHub</span>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -2381,7 +2536,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 type="button"
                 className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
                 onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
-                aria-label="Search leaves"
+                aria-label={t("searchLeaves","Search leaves")}
               >
                 <IconSearch />
               </button>
@@ -2392,7 +2547,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   fitToViewport();
                 }}
               >
-                Fit
+                {t("fitView","Fit view")}
               </button>
               <button
                 className={`${BUTTON_CLASSES} text-base`}
@@ -2405,7 +2560,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   requestAnimationFrame(()=>autoAdjustVerticalSpacing());
                 }}
               >
-                Reset
+                {t("resetView","Reset view")}
               </button>
               <button
                 className={`${branchEditMode ? BUTTON_CLASSES : SECONDARY_BUTTON_CLASSES} text-base`}
@@ -2414,13 +2569,13 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   setBranchEditMode(v=>!v);
                 }}
               >
-                {branchEditMode ? "Drag nodes mode: ON" : "Drag nodes mode: OFF"}
+                {branchEditMode ? t("dragNodesOn","Drag nodes mode: ON") : t("dragNodesOff","Drag nodes mode: OFF")}
               </button>
               {searchPopoverOpen && (
                 <div className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="font-semibold">Search leaves</span>
-                    <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>Close</button>
+                    <span className="font-semibold">{t("searchLeaves","Search leaves")}</span>
+                    <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>{t("close","Close")}</button>
                   </div>
                   <div className="space-y-3">
                     <input
@@ -2431,7 +2586,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     />
                     <label className="flex items-center gap-2 text-xs">
                       <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
-                      Use regular expressions
+                      {t("regex","Use regular expressions")}
                     </label>
                     {hasSearchMatches && (
                       <div className="flex items-center justify-between text-xs text-slate-600">
@@ -2455,7 +2610,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                       </div>
                     )}
                     <div className="flex items-center justify-between">
-                      <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>Clear</button>
+                      <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>{t("clear","Clear")}</button>
                       {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
                     </div>
                   </div>
