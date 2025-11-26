@@ -28,6 +28,17 @@ https://yawak.jp/PhyloWeaver/
 - **Export options**
   - Export the current view as NEWICK file, tip list, and image (SVG/PDF/PNG).
 
+### URL-based tree loading
+
+PhyloWeaver can also load a tree directly from a URL query parameter.  
+If a URL of the form
+
+```text
+https://yawak.jp/PhyloWeaver/?newick=((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4)88/0.92:0.5);
+```
+is opened in the browser, the newick parameter is decoded and used as the initial tree.
+
+
 
 ## Supported formats
 
