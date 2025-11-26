@@ -551,6 +551,7 @@ export default function TreeEditor(){
   const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
   const cladogramDomainRef = useRef(1);
   const suppressClickRef = useRef(false);
+  const newickQueryAppliedRef = useRef(false);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
   const currentNewick = useMemo(()=>toNewick(tree, { includeLengths: layout!=="cladogram" }),[tree, layout]);
   const [currentNewickEditable,setCurrentNewickEditable]=useState(currentNewick);
@@ -844,6 +845,26 @@ export default function TreeEditor(){
     mutator(draft);
     commitTree(draft, { preserveZoom: true, skipHistory: options?.skipHistory ?? false });
   },[commitTree]);
+
+  useEffect(()=>{
+    if(newickQueryAppliedRef.current) return;
+    newickQueryAppliedRef.current = true;
+    if(typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get("newick");
+    if(!fromQuery) return;
+    const decoded = fromQuery.replace(/\+/g, " ");
+    setRawText(decoded);
+    try{
+      const parsed = ensureIds(parseNewick(decoded));
+      commitTree(parsed);
+      setActiveTab("data");
+    }catch(err){
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("Failed to parse NEWICK from query parameter", err);
+      alert("Failed to parse NEWICK from URL parameter: " + message);
+    }
+  },[commitTree, setActiveTab, setRawText]);
 
 
   // Layout computation
