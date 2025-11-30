@@ -1588,17 +1588,48 @@ export default function TreeEditor(){
     } else { const p=findById(tree, selection.parentId); if(!p?.children) return; p.children=p.children.filter(c=>c.__id!==selection.childId); if(!p.children?.length) delete p.children; }
     collapseUnaryInPlace(tree); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
   }
-  function actionAddLeaf(){ if(!selection) return;
-    if(selection.type==='link'){ const p=findById(tree, selection.parentId), c=findById(tree, selection.childId); if(!p||!c) return;
-      const currentLength = typeof c.length === "number" && Number.isFinite(c.length) ? c.length : 0.1;
-      const R=splitEdge(p,c,Math.max(1e-6,currentLength/2));
-      R.children??=[];
-      R.children.push({__id:nextId(), name:'New', length:Math.max(1e-3,currentLength/2)});
-      ensureIds(tree); commitTree(clone(tree), { preserveZoom: true }); setMenu({...menu,visible:false}); return; }
-    if(selection.type==='node'){ const t=findById(tree, selection.id); if(!t) return;
+  function actionAddLeaf(){
+    if(!selection) return;
+    const addLeafOnEdge = (parent: TreeNode, child: TreeNode)=>{
+      const currentLength = typeof child.length === "number" && Number.isFinite(child.length) ? child.length : 0.1;
+      const R = splitEdge(parent, child, Math.max(1e-6, currentLength / 2));
+      R.children ??= [];
+      R.children.push({
+        __id: nextId(),
+        name: "New",
+        length: layout === "phylogram" ? Math.max(1e-3, currentLength / 2) : undefined,
+      });
+    };
+    const finalize = ()=>{
+      ensureIds(tree);
+      commitTree(clone(tree), { preserveZoom: true });
+      setMenu({...menu,visible:false});
+    };
+    if(selection.type==='link'){
+      const p=findById(tree, selection.parentId), c=findById(tree, selection.childId); if(!p||!c) return;
+      addLeafOnEdge(p,c);
+      finalize();
+      return;
+    }
+    if(selection.type==='node'){
+      const t=findById(tree, selection.id); if(!t) return;
+      if(!t.children?.length){
+        const parent = parentOf(tree, selection.id);
+        const currentLength = typeof t.length === "number" && Number.isFinite(t.length) ? t.length : 0.1;
+        if(parent){
+          addLeafOnEdge(parent, t);
+        }else{
+          const baseLength = layout==='phylogram' ? Math.max(1e-3, currentLength / 2) : undefined;
+          const originalLeaf: TreeNode = { ...t, __id: nextId(), children: undefined, length: baseLength };
+          const newLeaf: TreeNode = { __id: nextId(), name: "New", length: baseLength };
+          t.children = [originalLeaf, newLeaf];
+          t.length = undefined;
+        }
+        finalize();
+        return;
+      }
       const leaf={__id:nextId(), name:'New', length: layout==='phylogram'?0.1:undefined};
-      if(!t.children?.length) t.children=[leaf];
-      else if(t.children.length===1) t.children.push(leaf);
+      if(t.children.length===1) t.children.push(leaf);
       else {
         const existingChildren = t.children ?? [];
         const clonedChildren = existingChildren.map(x=>x);
@@ -1608,7 +1639,7 @@ export default function TreeEditor(){
         const med=lens.length? lens.sort((a,b)=>a-b)[Math.floor(lens.length/2)]:0.1;
         leaf.length = (layout==='phylogram')? Math.max(1e-3, med||0.1): undefined;
       }
-      ensureIds(tree); commitTree(clone(tree), { preserveZoom: true }); setMenu({...menu,visible:false});
+      finalize();
     }
   }
   function actionFlipNode(){ if(!selection) return; const id=selection.type==='node'?selection.id:selection.childId; const t=findById(tree,id); if(!t?.children) return; t.children.reverse(); commitTree(clone(tree), { preserveZoom: true }); setMenu({...menu,visible:false}); }
@@ -1624,6 +1655,16 @@ export default function TreeEditor(){
   function actionReroot(){ if(!selection) return;
     if(selection.type==='node'){
       const obj=findById(tree,selection.id); if(!obj) return;
+      const isLeaf = !obj.children?.length;
+      if(isLeaf){
+        const parent = parentOf(tree, selection.id);
+        if(!parent) return;
+        const r0 = rerootOnEdge(tree, parent.__id ?? selection.id, selection.id, 0.5);
+        const r = collapseUnaryInPlace(r0); ensureIds(r);
+        ladderizeTipBottom(r, selection.id);
+        commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
+        return;
+      }
       const r0=rerootAt(tree,obj); const r=collapseUnaryInPlace(r0); ensureIds(r);
       if(!obj.children?.length && obj.__id !== undefined) ladderizeTipBottom(r,obj.__id);
       commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
