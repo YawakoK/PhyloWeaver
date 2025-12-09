@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import SearchIconSvg from "./assets/icons/Search.svg";
+import FullscreenIconSvg from "./assets/icons/Fullscreen.svg";
+import ExitIconSvg from "./assets/icons/Exit.svg";
 import LogoSvg from "./assets/icons/logo.svg";
 import CladogramIconSvg from "./assets/icons/Cladogram.svg";
 import PhylogramIconSvg from "./assets/icons/Phylogram.svg";
@@ -61,6 +63,7 @@ type LayoutSnapshot = {
 // const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
 const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
+const PRIMARY_BLUE_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-white text-[#286699] border border-[#286699] text-base font-bold transition-all duration-200 hover:bg-[#286699]/10 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
@@ -126,11 +129,11 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     imageExports: "Image exports",
     italicTips: "Italic leaf labels",
     scaleLabel: "Scale (x)",
-    fitView: "Fit view",
+    fitView: "Zoom reset",
     resetView: "Reset view",
-    dragNodesOn: "Drag nodes mode: ON",
-    dragNodesOff: "Drag nodes mode: OFF",
-    canvasOnlyOn: "Canvas fullscreen",
+    dragNodesOn: "Drag nodes: ON",
+    dragNodesOff: "Drag nodes: OFF",
+    canvasOnlyOn: "Fullscreen",
     canvasOnlyOff: "Exit fullscreen",
     searchLeaves: "Search leaves",
     clear: "Clear",
@@ -197,12 +200,12 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     imageExports: "画像出力",
     italicTips: "葉ラベルを斜体にする",
     scaleLabel: "倍率",
-    fitView: "全体表示",
+    fitView: "ズームリセット",
     resetView: "リセット",
     dragNodesOn: "ノードドラッグ: ON",
     dragNodesOff: "ノードドラッグ: OFF",
-    canvasOnlyOn: "描画全画面",
-    canvasOnlyOff: "全画面をやめる",
+    canvasOnlyOn: "全画面",
+    canvasOnlyOff: "全画面終了",
     searchLeaves: "葉を検索",
     clear: "クリア",
     close: "閉じる",
@@ -546,6 +549,11 @@ export default function TreeEditor(){
   const [showNodeDots,setShowNodeDots]=useState(false);
   const [branchEditMode,setBranchEditMode]=useState(false);
   const [canvasOnlyMode,setCanvasOnlyMode]=useState(false);
+  const [leftPaneRatio,setLeftPaneRatio]=useState(0.26);
+  const [leftPaneWidth,setLeftPaneWidth]=useState<number | null>(null);
+  const [containerWidth,setContainerWidth]=useState<number | null>(null);
+  const layoutContainerRef = useRef<HTMLDivElement|null>(null);
+  const leftPaneRef = useRef<HTMLDivElement|null>(null);
   const [leafNodeDotSize,setLeafNodeDotSize]=useState(2.5);
   const [internalNodeDotSize,setInternalNodeDotSize]=useState(3.5);
   const showNodeDotsEffective = showNodeDots || branchEditMode;
@@ -708,6 +716,24 @@ export default function TreeEditor(){
       draggable={false}
     />
   );
+  const IconFullscreen = () => (
+    <img
+      src={FullscreenIconSvg}
+      alt="Fullscreen"
+      className="h-6 w-6 select-none pointer-events-none"
+      aria-hidden="true"
+      draggable={false}
+    />
+  );
+  const IconExit = () => (
+    <img
+      src={ExitIconSvg}
+      alt="Exit fullscreen"
+      className="h-6 w-6 select-none pointer-events-none"
+      aria-hidden="true"
+      draggable={false}
+    />
+  );
   const IconLayoutPhylo = ({ active }: { active: boolean }) => (
     <img
       src={PhylogramIconSvg}
@@ -728,13 +754,48 @@ export default function TreeEditor(){
   );
   const layoutContainerClass = canvasOnlyMode
     ? "w-full p-2 flex flex-nowrap gap-2 items-start"
-    : "w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-6 overflow-x-auto items-start";
+    : "w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-3 overflow-x-auto items-start";
+  const effectiveLeftRatio = (()=> {
+    if(containerWidth && leftPaneWidth !== null){
+      return Math.max(0.2, Math.min(0.7, leftPaneWidth / containerWidth));
+    }
+    return leftPaneRatio;
+  })();
   const rightPaneClass = canvasOnlyMode
     ? "flex-1 min-w-0 p-2 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative"
     : "flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative";
   const rightPaneInlineStyle = canvasOnlyMode
     ? { minHeight:"100vh", height:"100vh" }
-    : { minHeight:"calc(90vh)", height:"calc(95vh)" };
+    : {
+      minHeight:"calc(90vh)",
+      height:"calc(95vh)",
+      flexBasis: `${Math.max(30, Math.round((1 - effectiveLeftRatio) * 100))}%`,
+      flexGrow: 1
+    };
+  const leftPaneStyle = useMemo<React.CSSProperties>(()=> {
+    if(canvasOnlyMode) return {};
+    if(leftPaneWidth !== null){
+      return {
+        flexBasis: `${leftPaneWidth}px`,
+        width: `${leftPaneWidth}px`,
+        minWidth: 320,
+        maxWidth: 720,
+        flexShrink:0,
+        overflow:"auto",
+        position:"relative"
+      };
+    }
+    const pct = Math.round(leftPaneRatio*100);
+    return {
+      flexBasis: `${pct}%`,
+      width: `${pct}%`,
+      minWidth: 320,
+      maxWidth: 720,
+      flexShrink:0,
+      overflow:"auto",
+      position:"relative"
+    };
+  },[canvasOnlyMode, leftPaneWidth, leftPaneRatio]);
 
   // Horizontal scale width adjustable via UI
   const [xScaleWidth, setXScaleWidth] = useState(()=>1200);
@@ -914,22 +975,44 @@ export default function TreeEditor(){
     })(root);
 
     let maxDepth=0; root.each(d=>{ if(!d.children) maxDepth=Math.max(maxDepth,d.depth); });
-    (function assignX(d: HierarchyNodeWithLayout){
-      let baseX = 0;
-      if(!d.parent) baseX = 0;
-      else if(layout==='phylogram'){
-        baseX = (d.parent._x ?? 0) + (Number.isFinite(d.data.length)?Number(d.data.length):0);
-      }else{
-        baseX = d.children?.length ? d.depth : maxDepth;
+    const heightMap = new Map<HierarchyNodeWithLayout, number>();
+    (function computeHeight(d: HierarchyNodeWithLayout): number{
+      if(!d.children?.length){
+        heightMap.set(d, 1); // leaf height inclusive
+        return 1;
       }
-      if(layout==='cladogram'){
-        const offset = typeof d.data.__cladoOffset === "number" && Number.isFinite(d.data.__cladoOffset) ? d.data.__cladoOffset as number : 0;
-        d._x = baseX + offset;
-      }else{
-        d._x = baseX;
-      }
-      d.children?.forEach(child=>assignX(child as HierarchyNodeWithLayout));
+      const childHeights = d.children.map(ch=>computeHeight(ch as HierarchyNodeWithLayout));
+      const h = Math.max(...childHeights) + 1;
+      heightMap.set(d, h);
+      return h;
     })(root);
+
+    if(layout==='phylogram'){
+      (function assignXPhylo(d: HierarchyNodeWithLayout){
+        let baseX = 0;
+        if(!d.parent) baseX = 0;
+        else{
+          baseX = (d.parent._x ?? 0) + (Number.isFinite(d.data.length)?Number(d.data.length):0);
+        }
+        d._x = baseX;
+        d.children?.forEach(child=>assignXPhylo(child as HierarchyNodeWithLayout));
+      })(root);
+    }else{
+      const placeClado = (node: HierarchyNodeWithLayout, budget: number)=>{
+        const offset = typeof node.data.__cladoOffset === "number" && Number.isFinite(node.data.__cladoOffset) ? node.data.__cladoOffset as number : 0;
+        node._x = (node._x ?? 0) + offset;
+        node.children?.forEach(child=>{
+          const h = Math.max(1, heightMap.get(child as HierarchyNodeWithLayout) ?? 1);
+          const edgeLen = budget / h;
+          const baseX = (node._x ?? 0) + edgeLen;
+          const childOffset = typeof child.data.__cladoOffset === "number" && Number.isFinite(child.data.__cladoOffset) ? child.data.__cladoOffset as number : 0;
+          (child as HierarchyNodeWithLayout)._x = baseX + childOffset;
+          placeClado(child as HierarchyNodeWithLayout, Math.max(0, budget - edgeLen));
+        });
+      };
+      root._x = 0;
+      placeClado(root, 1);
+    }
 
     const xMaxRaw=d3.max(root.descendants().map(d=>(d as HierarchyNodeWithLayout)._x ?? 0));
     const xMax=(Number.isFinite(xMaxRaw) && (xMaxRaw ?? 0) > 0) ? (xMaxRaw as number) : 1;
@@ -1190,6 +1273,7 @@ export default function TreeEditor(){
   },[xExtent, yExtent, baseTranslateX, baseTranslateY, treeViewYOffset, svgHeight]);
 
   const didFirstFitRef = useRef(false);
+  const didInitialResetRef = useRef(false);
 
   const handleHorizontalScaleSlider = useCallback((value: number)=>{
     userSetWidthRef.current = true;
@@ -1294,11 +1378,18 @@ export default function TreeEditor(){
   const computeAutoVerticalSpacing = useCallback(()=>{
     const paneHeight = Math.max(200, paneDimensions.h - 160);
     const leaves = Math.max(1, tipCount);
+    if(leaves > 50){
+      return 15;
+    }
     const baseSpacing = Math.max(16, Math.min(100, Math.floor(paneHeight / Math.max(1, leaves))));
     const comfortableBase = Math.max(leafLabelSize * 1.8, 26);
     const comfortSpacing = Math.min(200, comfortableBase * (1 + Math.log10(leaves + 1) * 0.45));
-    const spacing = Math.min(200, Math.max(baseSpacing, comfortSpacing));
-    return Math.round(spacing);
+    const cappedComfort = Math.min(200, Math.max(baseSpacing, comfortSpacing));
+    const smallTreeCap = leaves <= 50
+      ? Math.max(12, Math.floor((paneHeight - 80) / Math.max(1, leaves + 4)))
+      : null;
+    const spacing = smallTreeCap ? Math.min(cappedComfort, smallTreeCap) : cappedComfort;
+    return Math.round(Math.max(12, spacing));
   },[paneDimensions.h, tipCount, leafLabelSize]);
 
   const autoAdjustVerticalSpacing = useCallback(()=>{
@@ -1378,7 +1469,42 @@ export default function TreeEditor(){
   useEffect(()=>{
     if(canvasOnlyMode) return;
     setTimeout(()=>fitToViewport(), 10);
-  },[fitToViewport, canvasOnlyMode]);
+  },[fitToViewport, canvasOnlyMode, leftPaneRatio]);
+  useEffect(()=>{
+    if(canvasOnlyMode) return;
+    const container = layoutContainerRef.current;
+    if(!container) return;
+    const measure=()=>{
+      const w = container.getBoundingClientRect().width || 1;
+      setContainerWidth(w);
+      setLeftPaneWidth(prev=>{
+        if(prev === null){
+          const target = Math.max(320, Math.min(720, w * leftPaneRatio));
+          const ratio = Math.max(0.2, Math.min(0.7, target / w));
+          if(ratio !== leftPaneRatio) setLeftPaneRatio(ratio);
+          return target;
+        }
+        return prev;
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(()=>measure());
+    ro.observe(container);
+    return ()=>ro.disconnect();
+  },[canvasOnlyMode, leftPaneRatio]);
+  useEffect(()=>{
+    if(didInitialResetRef.current) return;
+    didInitialResetRef.current = true;
+    requestAnimationFrame(()=>{
+      setSelection(null);
+      setMultiSelection([]);
+      setMenu(prev=>prev.visible ? { ...prev, visible:false } : prev);
+      setSearchPopoverOpen(false);
+      applyAutoHorizontalScale();
+      requestAnimationFrame(()=>autoAdjustVerticalSpacing());
+      requestAnimationFrame(()=>fitToViewport());
+    });
+  },[applyAutoHorizontalScale, autoAdjustVerticalSpacing, fitToViewport]);
 
   const handleLayoutModeChange = (mode: LayoutMode) => {
     if(layout === mode){
@@ -2670,8 +2796,8 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
         </div>
       )}
 
-      <div className={layoutContainerClass}>
-        <div className={canvasOnlyMode ? "hidden" : "flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"}>
+      <div className={layoutContainerClass} ref={layoutContainerRef}>
+        <div ref={leftPaneRef} className={canvasOnlyMode ? "hidden" : "relative flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"} style={leftPaneStyle}>
           <div className="relative rounded-xl bg-white/95 shadow-xl overflow-hidden">
             <div className="grid grid-cols-2 sm:grid-cols-4 text-center bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
               {tabs.map(tab=>(
@@ -2693,7 +2819,39 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               {renderTabContent()}
             </div>
           </div>
+          {!canvasOnlyMode && (
+            <div
+              className="absolute top-0 right-0 h-full w-2 cursor-col-resize group"
+              onMouseDown={(e)=>{
+                const container = layoutContainerRef.current;
+                const pane = leftPaneRef.current;
+                if(!container || !pane) return;
+                const containerW = container.getBoundingClientRect().width || 1;
+                const startWidth = pane.getBoundingClientRect().width || 0;
+                const startX = e.clientX;
+                const handleMove = (ev: MouseEvent)=>{
+                  ev.preventDefault();
+                  const dx = ev.clientX - startX;
+                  const nextWidth = Math.max(320, Math.min(720, startWidth + dx));
+                  setLeftPaneWidth(nextWidth);
+                  const ratio = Math.max(0.2, Math.min(0.7, nextWidth / containerW));
+                  setLeftPaneRatio(ratio);
+                };
+                const handleUp = ()=>{
+                  window.removeEventListener("mousemove", handleMove);
+                  window.removeEventListener("mouseup", handleUp);
+                };
+                window.addEventListener("mousemove", handleMove);
+                window.addEventListener("mouseup", handleUp);
+              }}
+            >
+              <div className="absolute inset-y-2 right-0 w-[2px] bg-slate-200/40 group-hover:bg-[#286699] rounded-full transition" />
+              <div className="absolute inset-y-0 right-0 opacity-0 group-hover:opacity-80 transition text-slate-500 text-[11px] flex items-center justify-center select-none">↔</div>
+            </div>
+          )}
         </div>
+
+        {/* Draggable resize handled directly on left pane via CSS resize; no separate splitter */}
 
         {/* Tree canvas */}
         <div
@@ -2702,29 +2860,90 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
           onClick={handleCanvasBackgroundClick}
           style={rightPaneInlineStyle}
         >
-          {canvasOnlyMode && (
-            <button
-              className="absolute top-3 left-3 z-50 rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 shadow-md border border-slate-200 hover:bg-white"
-              onClick={(e)=>{
-                e.stopPropagation();
-                setCanvasOnlyMode(false);
-                requestAnimationFrame(()=>fitToViewport());
-              }}
-            >
-              {t("canvasOnlyOff","Exit fullscreen")}
-            </button>
-          )}
           <div className="flex h-full flex-col gap-4">
-            <div className="relative flex flex-wrap items-end justify-end gap-6">
+            <div className="relative flex flex-col gap-3">
               {layout==='phylogram' && (
                 <div className="absolute left-0 top-0 pointer-events-none z-30">
                   <ScaleBarHTML totalLength={totalLength} zoomK={zoomK} />
                 </div>
               )}
-              <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
-                <span>↔ Horizontal scale</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-700 w-14 text-right">{Math.round(xScaleWidth)}</span>
+              <div className="flex flex-wrap items-end justify-end gap-2">
+                <button
+                  className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
+                  disabled={!canUndo}
+                  aria-label="Undo"
+                  onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
+                >
+                  ↺
+                </button>
+                <button
+                  className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
+                  disabled={!canRedo}
+                  aria-label="Redo"
+                  onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
+                >
+                  ↻
+                </button>
+                <button
+                  type="button"
+                  className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
+                  onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
+                  aria-label={t("searchLeaves","Search leaves")}
+                >
+                  <IconSearch />
+                </button>
+                <button
+                  className={`${BUTTON_CLASSES} text-base`}
+                  onClick={(e)=>{
+                    e.stopPropagation();
+                    setSelection(null);
+                    setMultiSelection([]);
+                    setMenu({...menu,visible:false});
+                    setSearchPopoverOpen(false);
+                    applyAutoHorizontalScale();
+                    requestAnimationFrame(()=>autoAdjustVerticalSpacing());
+                  }}
+                >
+                  {t("resetView","Reset view")}
+                </button>
+                <button
+                  className={`${SECONDARY_BUTTON_CLASSES} text-base`}
+                  onClick={(e)=>{
+                    e.stopPropagation();
+                    fitToViewport();
+                  }}
+                >
+                  {t("fitView","Zoom reset")}
+                </button>
+                <button
+                  className={`${BUTTON_CLASSES} text-base flex items-center gap-2`}
+                  onClick={(e)=>{
+                    e.stopPropagation();
+                    setCanvasOnlyMode(prev=>{
+                      const next=!prev;
+                      requestAnimationFrame(()=>fitToViewport());
+                      return next;
+                    });
+                    setMenu(prev=>prev.visible?{...prev,visible:false}:prev);
+                    setSearchPopoverOpen(false);
+                  }}
+                >
+                  {canvasOnlyMode ? <IconExit /> : <IconFullscreen />}
+                  <span className="sr-only">{canvasOnlyMode ? t("canvasOnlyOff","Exit fullscreen") : t("canvasOnlyOn","Fullscreen")}</span>
+                </button>
+                <button
+                  className={`${branchEditMode ? `${PRIMARY_BLUE_BUTTON_CLASSES} bg-[#286699]/10` : PRIMARY_BLUE_BUTTON_CLASSES} text-base`}
+                  onClick={(e)=>{
+                    e.stopPropagation();
+                    setBranchEditMode(v=>!v);
+                  }}
+                >
+                  {branchEditMode ? t("dragNodesOn","Drag nodes: ON") : t("dragNodesOff","Drag nodes: OFF")}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-end justify-end gap-4">
+                <label className="flex items-center gap-3 text-[0.85rem] font-semibold text-slate-700">
+                  <span className="uppercase tracking-wide text-[0.75rem] text-slate-500">↔ Horizontal scale</span>
                   <input
                     type="range"
                     min={200}
@@ -2732,14 +2951,12 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     step={50}
                     value={xScaleWidth}
                     onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSlider(parseFloat(e.target.value)); }}
-                    className="w-32 accent-[#286699]"
+                    className="w-28 accent-[#286699]"
                   />
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-1 text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">
-                <span>↕ Vertical spacing</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-700 w-10 text-right">{Math.round(yGap)}</span>
+                  <span className="text-slate-700 w-12 text-right text-sm">{Math.round(xScaleWidth)}</span>
+                </label>
+                <label className="flex items-center gap-3 text-[0.85rem] font-semibold text-slate-700">
+                  <span className="uppercase tracking-wide text-[0.75rem] text-slate-500">↕ Vertical spacing</span>
                   <input
                     type="range"
                     min={1}
@@ -2749,79 +2966,9 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     onChange={(e)=>{ e.stopPropagation(); handleManualYGapChange(parseFloat(e.target.value)); }}
                     className="w-24 accent-[#286699]"
                   />
-                </div>
+                  <span className="text-slate-700 w-10 text-right text-sm">{Math.round(yGap)}</span>
+                </label>
               </div>
-              <button
-                className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
-                disabled={!canUndo}
-                aria-label="Undo"
-                onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
-              >
-                ↺
-              </button>
-              <button
-                className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
-                disabled={!canRedo}
-                aria-label="Redo"
-                onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
-              >
-                ↻
-              </button>
-              <button
-                type="button"
-                className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
-                onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
-                aria-label={t("searchLeaves","Search leaves")}
-              >
-                <IconSearch />
-              </button>
-              <button
-                className={`${BUTTON_CLASSES} text-base`}
-                onClick={(e)=>{
-                  e.stopPropagation();
-                  setCanvasOnlyMode(prev=>{
-                    const next=!prev;
-                    requestAnimationFrame(()=>fitToViewport());
-                    return next;
-                  });
-                  setMenu(prev=>prev.visible?{...prev,visible:false}:prev);
-                  setSearchPopoverOpen(false);
-                }}
-              >
-                {canvasOnlyMode ? t("canvasOnlyOff","Exit fullscreen") : t("canvasOnlyOn","Canvas fullscreen")}
-              </button>
-              <button
-                className={`${SECONDARY_BUTTON_CLASSES} text-base`}
-                onClick={(e)=>{
-                  e.stopPropagation();
-                  fitToViewport();
-                }}
-              >
-                {t("fitView","Fit view")}
-              </button>
-              <button
-                className={`${BUTTON_CLASSES} text-base`}
-                onClick={(e)=>{
-                  e.stopPropagation();
-                  setSelection(null);
-                  setMultiSelection([]);
-                  setMenu({...menu,visible:false});
-                  setSearchPopoverOpen(false);
-                  applyAutoHorizontalScale();
-                  requestAnimationFrame(()=>autoAdjustVerticalSpacing());
-                }}
-              >
-                {t("resetView","Reset view")}
-              </button>
-              <button
-                className={`${branchEditMode ? `${BUTTON_CLASSES} bg-[#dba633]/30 hover:bg-[#dba633]/30` : SECONDARY_BUTTON_CLASSES} text-base`}
-                onClick={(e)=>{
-                  e.stopPropagation();
-                  setBranchEditMode(v=>!v);
-                }}
-              >
-                {branchEditMode ? t("dragNodesOn","Drag nodes mode: ON") : t("dragNodesOff","Drag nodes mode: OFF")}
-              </button>
               {searchPopoverOpen && (
                 <div className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
                   <div className="flex items-center justify-between mb-3">
