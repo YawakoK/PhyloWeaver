@@ -34,6 +34,7 @@ type SelectionState =
   | { type: "link"; parentId: number; childId: number };
 
 type ContextMenuState = { visible: boolean; left: number; top: number };
+type TooltipState = { visible: boolean; left: number; top: number; text: string };
 
 type HierarchyNodeWithLayout = d3.HierarchyNode<TreeNode> & { _x?: number };
 
@@ -101,6 +102,8 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     phylogram: "Phylogram",
     cladogram: "Cladogram",
     activeSelection: "Active selection",
+    collapse: "Collapse",
+    expand: "Expand",
     reroot: "Reroot",
     flip: "Flip",
     addLeaf: "Add leaf",
@@ -127,6 +130,8 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     resetView: "Reset view",
     dragNodesOn: "Drag nodes mode: ON",
     dragNodesOff: "Drag nodes mode: OFF",
+    canvasOnlyOn: "Canvas fullscreen",
+    canvasOnlyOff: "Exit fullscreen",
     searchLeaves: "Search leaves",
     clear: "Clear",
     close: "Close",
@@ -168,6 +173,8 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     phylogram: "フィログラム",
     cladogram: "クラドグラム",
     activeSelection: "選択中",
+    collapse: "折りたたみ",
+    expand: "展開",
     reroot: "再ルート化",
     flip: "反転",
     addLeaf: "葉を追加",
@@ -194,6 +201,8 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     resetView: "リセット",
     dragNodesOn: "ノードドラッグ: ON",
     dragNodesOff: "ノードドラッグ: OFF",
+    canvasOnlyOn: "描画全画面",
+    canvasOnlyOff: "全画面をやめる",
     searchLeaves: "葉を検索",
     clear: "クリア",
     close: "閉じる",
@@ -343,6 +352,17 @@ function collectTips(node: TreeNode, arr: TreeNode[] = []): TreeNode[] {
   if (!node.children?.length) arr.push(node);
   else node.children.forEach((c) => collectTips(c, arr));
   return arr;
+}
+function mapTipNames(node: TreeNode | null | undefined, map: Map<number, string[]>): string[] {
+  if (!node) return [];
+  if (!node.children?.length) {
+    const label = (node.name ?? "Unnamed").toString().trim() || "Unnamed";
+    if (node.__id !== undefined) map.set(node.__id, [label]);
+    return [label];
+  }
+  const all = node.children.flatMap((child)=>mapTipNames(child, map));
+  if (node.__id !== undefined) map.set(node.__id, all);
+  return all;
 }
 function mapTipCounts(node: TreeNode | null | undefined, map: Map<number, number>): number {
   if (!node) return 0;
@@ -505,7 +525,7 @@ export default function TreeEditor(){
   useEffect(()=>{ latestTreeRef.current = tree; },[tree]);
   const [layout,setLayout]=useState<LayoutMode>("phylogram");
   const [edgeWidth,setEdgeWidth]=useState(1.5);
-  const [leafLabelSize,setLeafLabelSize]=useState(25);
+  const [leafLabelSize,setLeafLabelSize]=useState(20);
   const [nodeLabelSize,setNodeLabelSize]=useState(15);
   const [branchLabelSize,setBranchLabelSize]=useState(15);
   const [branchLengthPrecision,setBranchLengthPrecision]=useState(3);
@@ -525,6 +545,7 @@ export default function TreeEditor(){
   const [showBootstrap,setShowBootstrap]=useState(false);
   const [showNodeDots,setShowNodeDots]=useState(false);
   const [branchEditMode,setBranchEditMode]=useState(false);
+  const [canvasOnlyMode,setCanvasOnlyMode]=useState(false);
   const [leafNodeDotSize,setLeafNodeDotSize]=useState(2.5);
   const [internalNodeDotSize,setInternalNodeDotSize]=useState(3.5);
   const showNodeDotsEffective = showNodeDots || branchEditMode;
@@ -622,6 +643,11 @@ export default function TreeEditor(){
     mapTipCounts(tree, map);
     return map;
   },[tree]);
+  const tipNamesById = useMemo<Map<number, string[]>>(()=>{
+    const map = new Map<number, string[]>();
+    mapTipNames(tree, map);
+    return map;
+  },[tree]);
   const displayTree = useMemo<TreeNode>(()=> {
     function cloneNode(n: TreeNode): TreeNode {
       const copy: TreeNode = { ...n };
@@ -700,6 +726,15 @@ export default function TreeEditor(){
       draggable={false}
     />
   );
+  const layoutContainerClass = canvasOnlyMode
+    ? "w-full p-2 flex flex-nowrap gap-2 items-start"
+    : "w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-6 overflow-x-auto items-start";
+  const rightPaneClass = canvasOnlyMode
+    ? "flex-1 min-w-0 p-2 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative"
+    : "flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative";
+  const rightPaneInlineStyle = canvasOnlyMode
+    ? { minHeight:"100vh", height:"100vh" }
+    : { minHeight:"calc(90vh)", height:"calc(95vh)" };
 
   // Horizontal scale width adjustable via UI
   const [xScaleWidth, setXScaleWidth] = useState(()=>1200);
@@ -971,6 +1006,7 @@ export default function TreeEditor(){
   const [selection,setSelection]=useState<SelectionState | null>(null);
   const [multiSelection,setMultiSelection]=useState<SelectionState[]>([]);
   const [menu,setMenu]=useState<ContextMenuState>({visible:false,left:0,top:0});
+  const [collapsedHover,setCollapsedHover]=useState<TooltipState>({visible:false,left:0,top:0,text:""});
 
   const updateCladoOffset = useCallback((nodeId: number, nextOffset: number, options?: { skipHistory?: boolean })=>{
     const domain = Math.max(1, cladogramDomainRef.current);
@@ -1080,6 +1116,7 @@ export default function TreeEditor(){
     setSelection(null);
     setMultiSelection([]);
     hideContextMenu();
+    setCollapsedHover(prev=> prev.visible ? { ...prev, visible:false } : prev);
   },[hideContextMenu]);
 
   const handleCanvasBackgroundClick = useCallback((e: React.MouseEvent<HTMLDivElement>)=>{
@@ -1115,7 +1152,7 @@ export default function TreeEditor(){
     return ()=>{
       svg.on(".zoom", null);
     };
-  },[baseTranslateX, baseTranslateY, branchEditMode]);
+  },[baseTranslateX, baseTranslateY, branchEditMode, canvasOnlyMode]);
 
   // Observe right pane size (used for manual resets)
 
@@ -1257,7 +1294,7 @@ export default function TreeEditor(){
   const computeAutoVerticalSpacing = useCallback(()=>{
     const paneHeight = Math.max(200, paneDimensions.h - 160);
     const leaves = Math.max(1, tipCount);
-    const baseSpacing = Math.max(16, Math.min(140, Math.floor(paneHeight / Math.max(1, leaves))));
+    const baseSpacing = Math.max(16, Math.min(100, Math.floor(paneHeight / Math.max(1, leaves))));
     const comfortableBase = Math.max(leafLabelSize * 1.8, 26);
     const comfortSpacing = Math.min(200, comfortableBase * (1 + Math.log10(leaves + 1) * 0.45));
     const spacing = Math.min(200, Math.max(baseSpacing, comfortSpacing));
@@ -1334,6 +1371,14 @@ export default function TreeEditor(){
     const id=requestAnimationFrame(fitToViewport);
     return ()=>cancelAnimationFrame(id);
   },[tree, layout, yGap, xScaleWidth, fitToViewport]);
+  useEffect(()=>{
+    const id=requestAnimationFrame(fitToViewport);
+    return ()=>cancelAnimationFrame(id);
+  },[canvasOnlyMode, fitToViewport]);
+  useEffect(()=>{
+    if(canvasOnlyMode) return;
+    setTimeout(()=>fitToViewport(), 10);
+  },[fitToViewport, canvasOnlyMode]);
 
   const handleLayoutModeChange = (mode: LayoutMode) => {
     if(layout === mode){
@@ -1471,7 +1516,21 @@ export default function TreeEditor(){
 
   function openMenuAt(cx: number, cy: number){
     const pane=rightPaneRef.current; if(!pane) return;
-    const r=pane.getBoundingClientRect(); setMenu({visible:true,left:cx - r.left, top:cy - r.top});
+    const r=pane.getBoundingClientRect();
+    const scrollX = pane.scrollLeft;
+    const scrollY = pane.scrollTop;
+    setMenu({visible:true,left:cx - r.left + scrollX, top:cy - r.top + scrollY});
+  }
+  function showCollapsedTooltip(ev: React.MouseEvent<SVGElement>, text: string){
+    setCollapsedHover({
+      visible:true,
+      left:ev.clientX + 14,
+      top:ev.clientY + 14,
+      text
+    });
+  }
+  function hideCollapsedTooltip(){
+    setCollapsedHover(prev=> prev.visible ? { ...prev, visible:false } : prev);
   }
   const handleNodeMouseDown = useCallback((n: PositionedNode, e: React.MouseEvent<SVGGElement, MouseEvent>)=>{
     if(!branchEditMode) return;
@@ -2084,6 +2143,20 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               <button className={`${BUTTON_CLASSES} flex items-center justify-center gap-2`} onClick={actionDeleteSelected}>
                 <IconDelete /> <span>{t("delete","Delete")}</span>
               </button>
+              <button
+                className={`${BUTTON_CLASSES} ${!canCollapseSelection ? "opacity-40 cursor-not-allowed" : ""}`}
+                onClick={actionCollapseSelected}
+                disabled={!canCollapseSelection}
+              >
+                {t("collapse","Collapse")}
+              </button>
+              <button
+                className={`${BUTTON_CLASSES} ${!canExpandSelection ? "opacity-40 cursor-not-allowed" : ""}`}
+                onClick={actionExpandSelected}
+                disabled={!canExpandSelection}
+              >
+                {t("expand","Expand")}
+              </button>
               <div className="col-span-2 space-y-2">
                 <span className="text-sm font-medium text-slate-700">{t("edgeLabelColor","Edge / label color")}</span>
                 <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} />
@@ -2560,43 +2633,45 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900" onClick={()=>{ if(menu.visible) setMenu({...menu,visible:false}); if(searchPopoverOpen) setSearchPopoverOpen(false); }}>
-      <div className="border-b border-white/30 bg-white/70 backdrop-blur">
-        <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
-            <span className="text-sm text-slate-500">{t("headerTagline","Interactive editor for phylogenies")}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex rounded-full border border-[#286699]/30 bg-white/80 text-sm font-semibold overflow-hidden">
-              {(["en","jp"] as Locale[]).map((code)=>(
-                <button
-                  key={code}
-                  type="button"
-                  onClick={()=>setLang(code)}
-                  className={`px-3 py-1 transition ${lang===code?"bg-[#286699] text-white":"text-[#286699]"}`}
-                >
-                  {code.toUpperCase()}
-                </button>
-              ))}
+    <div className={canvasOnlyMode ? "min-h-screen bg-white text-slate-900" : "min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"} onClick={()=>{ if(menu.visible) setMenu({...menu,visible:false}); if(searchPopoverOpen) setSearchPopoverOpen(false); }}>
+      {!canvasOnlyMode && (
+        <div className="border-b border-white/30 bg-white/70 backdrop-blur">
+          <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
+              <span className="text-sm text-slate-500">{t("headerTagline","Interactive editor for phylogenies")}</span>
             </div>
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
-            >
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
-              </svg>
-              <span>GitHub</span>
-            </a>
+            <div className="flex items-center gap-3">
+              <div className="flex rounded-full border border-[#286699]/30 bg-white/80 text-sm font-semibold overflow-hidden">
+                {(["en","jp"] as Locale[]).map((code)=>(
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={()=>setLang(code)}
+                    className={`px-3 py-1 transition ${lang===code?"bg-[#286699] text-white":"text-[#286699]"}`}
+                  >
+                    {code.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <a
+                href={GITHUB_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
+              >
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
+                </svg>
+                <span>GitHub</span>
+              </a>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-6 overflow-x-auto items-start">
-        <div className="flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]">
+      <div className={layoutContainerClass}>
+        <div className={canvasOnlyMode ? "hidden" : "flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"}>
           <div className="relative rounded-xl bg-white/95 shadow-xl overflow-hidden">
             <div className="grid grid-cols-2 sm:grid-cols-4 text-center bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
               {tabs.map(tab=>(
@@ -2623,10 +2698,22 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
         {/* Tree canvas */}
         <div
           ref={rightPaneRef}
-          className="flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative"
+          className={rightPaneClass}
           onClick={handleCanvasBackgroundClick}
-          style={{ minHeight:"calc(90vh)", height:"calc(95vh)" }}
+          style={rightPaneInlineStyle}
         >
+          {canvasOnlyMode && (
+            <button
+              className="absolute top-3 left-3 z-50 rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 shadow-md border border-slate-200 hover:bg-white"
+              onClick={(e)=>{
+                e.stopPropagation();
+                setCanvasOnlyMode(false);
+                requestAnimationFrame(()=>fitToViewport());
+              }}
+            >
+              {t("canvasOnlyOff","Exit fullscreen")}
+            </button>
+          )}
           <div className="flex h-full flex-col gap-4">
             <div className="relative flex flex-wrap items-end justify-end gap-6">
               {layout==='phylogram' && (
@@ -2687,6 +2774,21 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 aria-label={t("searchLeaves","Search leaves")}
               >
                 <IconSearch />
+              </button>
+              <button
+                className={`${BUTTON_CLASSES} text-base`}
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  setCanvasOnlyMode(prev=>{
+                    const next=!prev;
+                    requestAnimationFrame(()=>fitToViewport());
+                    return next;
+                  });
+                  setMenu(prev=>prev.visible?{...prev,visible:false}:prev);
+                  setSearchPopoverOpen(false);
+                }}
+              >
+                {canvasOnlyMode ? t("canvasOnlyOff","Exit fullscreen") : t("canvasOnlyOn","Canvas fullscreen")}
               </button>
               <button
                 className={`${SECONDARY_BUTTON_CLASSES} text-base`}
@@ -2772,7 +2874,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 width={"100%"}
                 height={svgHeight}
                 className="border border-transparent rounded-2xl bg-white"
-                style={{ display:"block" }}
+                style={{ display:"block", touchAction:"none" }}
                 onClick={handleSvgBlankClick}
               >
                 <g ref={gRef}>
@@ -2878,6 +2980,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const collapsedTipCount = typeof n.d.data.__collapsedTipCount === "number" ? n.d.data.__collapsedTipCount : undefined;
                 const isCollapsedLeaf = Boolean(isDisplayLeaf && n.d.data.__isCollapsedPlaceholder);
                 const isSimpleLeaf = isDisplayLeaf && !isCollapsedLeaf;
+                const collapsedLeafNames = nodeId !== undefined ? tipNamesById.get(nodeId) : undefined;
                 const nodeColor = n.d.data.__color;
                 const defaultRadius = isDisplayLeaf ? Math.max(0, leafNodeDotSize) : Math.max(0, internalNodeDotSize);
                 const customRadius = typeof n.d.data.__nodeSize === "number" && Number.isFinite(n.d.data.__nodeSize)
@@ -2899,6 +3002,17 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 const collapsedLabelText = isCollapsedLeaf ? `(${collapsedTipCount ?? 0})` : "";
                 const leafLabelText = trimmedName || "Unnamed";
                 const displayLabelText = isCollapsedLeaf ? collapsedLabelText : leafLabelText;
+                const collapsedPreview = collapsedLeafNames?.slice(0, 5) ?? [];
+                const collapsedHasMore = (collapsedLeafNames?.length ?? 0) > collapsedPreview.length;
+                const collapsedPreviewText = collapsedPreview.join(", ");
+                const collapsedTooltipCount = collapsedLeafNames?.length ?? collapsedTipCount ?? 0;
+                const collapsedTitle = isCollapsedLeaf
+                  ? (
+                    collapsedPreview.length
+                      ? `${collapsedTooltipCount} ${collapsedTooltipCount === 1 ? "leaf" : "leaves"}: ${collapsedPreviewText}${collapsedHasMore ? ", ..." : ""}`
+                      : `Collapsed subtree (${collapsedTipCount ?? 0} leaf${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`
+                  )
+                  : null;
                 const isSearchHit = nodeId !== undefined && searchSet.has(nodeId);
                 const isActiveSearchTarget = activeSearchNodeId !== null && nodeId === activeSearchNodeId;
                 const labelBaselineY = leafLabelOffsetY;
@@ -2923,8 +3037,8 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   isCollapsedLeaf ? "font-medium" : ""
                 ].filter(Boolean).join(" ");
                 const baseLeafFill = nodeColor || '#1f2937';
-                const collapsedStrokeColor = nodeColor || '#286699';
-                const collapsedFillColor = nodeColor || '#286699';
+                const collapsedStrokeColor = nodeColor || '#000000ff';
+                const collapsedFillColor = nodeColor || '#000000ff';
                 const labelFill = isCollapsedLeaf
                   ? collapsedStrokeColor
                   : (isSimpleLeaf ? baseLeafFill : '#374151');
@@ -2937,9 +3051,6 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                     onClick={(e)=>onClickNode(n,e)}
                     onMouseDown={(e)=>handleNodeMouseDown(n,e)}
                   >
-                    {isCollapsedLeaf && (
-                      <title>{`Collapsed subtree (${collapsedTipCount ?? 0} leaf${(collapsedTipCount ?? 0) === 1 ? "" : "s"})`}</title>
-                    )}
                     {showNodeDotsEffective && (
                       <circle
                         r={branchEditActive ? Math.max(r + 1.5, isDisplayLeaf ? 4 : 3) : r}
@@ -2953,10 +3064,13 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                       <path
                         d={`M${collapsedWidth},${-collapsedHalfHeight} L0,0 L${collapsedWidth},${collapsedHalfHeight} Z`}
                         fill={collapsedFillColor}
-                        fillOpacity={0.18}
+                        fillOpacity={1}
                         stroke={collapsedStrokeColor}
                         strokeWidth={selected ? 2.4 : 1.2}
-                        pointerEvents="none"
+                        pointerEvents="visiblePainted"
+                        onMouseEnter={(e)=>{ if(collapsedTitle) showCollapsedTooltip(e as unknown as React.MouseEvent<SVGElement>, collapsedTitle); }}
+                        onMouseMove={(e)=>{ if(collapsedTitle) showCollapsedTooltip(e as unknown as React.MouseEvent<SVGElement>, collapsedTitle); }}
+                        onMouseLeave={hideCollapsedTooltip}
                       />
                     )}
                     {isSimpleLeaf && (
@@ -2993,6 +3107,10 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                         paintOrder={showHighlight ? "stroke fill" : undefined}
                         data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
+                        pointerEvents="visiblePainted"
+                        onMouseEnter={(e)=>{ if(collapsedTitle) showCollapsedTooltip(e, collapsedTitle); }}
+                        onMouseMove={(e)=>{ if(collapsedTitle) showCollapsedTooltip(e, collapsedTitle); }}
+                        onMouseLeave={hideCollapsedTooltip}
                       >
                         {displayLabelText}
                       </text>
@@ -3103,6 +3221,15 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
           )}
         </div>
       </div>
+
+      {collapsedHover.visible && (
+        <div
+          className="pointer-events-none fixed z-50 max-w-sm rounded-xl bg-slate-900/90 px-3 py-2 text-sm text-white shadow-2xl"
+          style={{ left: collapsedHover.left, top: collapsedHover.top }}
+        >
+          {collapsedHover.text}
+        </div>
+      )}
 
     </div>
   );
