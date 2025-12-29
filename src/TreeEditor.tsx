@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import SearchIconSvg from "./assets/icons/Search.svg";
 import FullscreenIconSvg from "./assets/icons/Fullscreen.svg";
@@ -66,6 +66,7 @@ const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c2
 const PRIMARY_BLUE_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-white text-[#286699] border border-[#286699] text-base font-bold transition-all duration-200 hover:bg-[#286699]/10 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
+const HOMEPAGE_URL = "https://yawak.jp/PhyloWeaver/";
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
 const READABLE_FIT_SCALE = 0.85;
@@ -124,6 +125,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     leafList: "Leaf list",
     currentNewick: "NEWICK",
     copy: "Copy",
+    copyPng: "Copy PNG",
     copied: "Copied!",
     copyFailed: "Copy failed",
     imageExports: "Image exports",
@@ -195,6 +197,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     leafList: "葉リスト",
     currentNewick: "現在のNEWICK",
     copy: "コピー",
+    copyPng: "PNGをコピー",
     copied: "コピーしました",
     copyFailed: "コピー失敗",
     imageExports: "画像出力",
@@ -578,6 +581,7 @@ export default function TreeEditor(){
   const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
   const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
+  const [pngCopyState,setPngCopyState]=useState<"idle"|"copied"|"error">("idle");
   const cladogramDomainRef = useRef(1);
   const suppressClickRef = useRef(false);
   const newickQueryAppliedRef = useRef(false);
@@ -814,6 +818,13 @@ export default function TreeEditor(){
 
   const svgRef=useRef<SVGSVGElement|null>(null); const gRef=useRef<SVGGElement|null>(null); const rightPaneRef=useRef<HTMLDivElement|null>(null); const zoomRef=useRef<d3.ZoomBehavior<SVGSVGElement, unknown>|null>(null);
   const zoomTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+  const pendingZoomAnchorRef = useRef<{
+    transform: d3.ZoomTransform;
+    anchorId?: number;
+    screenX?: number;
+    screenY?: number;
+  } | null>(null);
+  const skipNextAutoFitRef = useRef(false);
   const paneSizeRef = useRef<{w:number;h:number}>({ w: 1200, h: 600 });
   const userAdjustedZoomRef = useRef<boolean>(false);
   const userSetWidthRef = useRef<boolean>(false);
@@ -917,6 +928,10 @@ export default function TreeEditor(){
   const commitTree = useCallback((nextTree: TreeNode, options?: { preserveZoom?: boolean; skipHistory?: boolean })=>{
     if(options?.preserveZoom) {
       userAdjustedZoomRef.current = true;
+      skipNextAutoFitRef.current = true;
+      if(!pendingZoomAnchorRef.current){
+        pendingZoomAnchorRef.current = { transform: zoomTransformRef.current ?? d3.zoomIdentity };
+      }
     } else {
       userAdjustedZoomRef.current = false;
       userSetWidthRef.current = false;
@@ -1045,6 +1060,36 @@ export default function TreeEditor(){
     const yExtent:[number,number]=[Math.min(...ys,0), Math.max(...ys,0)];
     return { nodes, links, totalLength: xMax, xExtent, yExtent };
   },[displayTree, layout, yGap, xScaleWidth, leafLabelSize, leafLabelOffsetX, italic, measureLabelWidth, getCollapsedTriangleMetrics]);
+
+  const nodePositionsById = useMemo(()=>{
+    const map = new Map<number, { x: number; y: number }>();
+    nodes.forEach(n=>{
+      const id = n.d.data.__id;
+      if(typeof id === "number") map.set(id, { x: n.x, y: n.y });
+    });
+    return map;
+  },[nodes]);
+
+  useLayoutEffect(()=>{
+    const pending = pendingZoomAnchorRef.current;
+    if(!pending) return;
+    const svgNode = svgRef.current;
+    const zoomBehavior = zoomRef.current;
+    if(!svgNode || !zoomBehavior) return;
+    let nextTransform = pending.transform;
+    if(pending.anchorId !== undefined && pending.screenX !== undefined && pending.screenY !== undefined){
+      const anchor = nodePositionsById.get(pending.anchorId);
+      if(anchor){
+        const k = Number.isFinite(nextTransform.k) ? nextTransform.k : 1;
+        const tx = pending.screenX - baseTranslateX - anchor.x * k;
+        const ty = pending.screenY - baseTranslateY - anchor.y * k;
+        nextTransform = d3.zoomIdentity.translate(tx, ty).scale(k);
+      }
+    }
+    d3.select<SVGSVGElement, unknown>(svgNode).call(zoomBehavior.transform, nextTransform);
+    userAdjustedZoomRef.current = true;
+    pendingZoomAnchorRef.current = null;
+  },[nodePositionsById, baseTranslateX, baseTranslateY]);
 
   useEffect(()=>{
     if(layout === "cladogram"){
@@ -1458,17 +1503,24 @@ export default function TreeEditor(){
     }
   },[computeAutoHorizontalScale, xScaleWidth]);
   useEffect(()=>{
+    if(skipNextAutoFitRef.current){
+      skipNextAutoFitRef.current = false;
+      return;
+    }
     if(userAdjustedZoomRef.current) return;
     const id=requestAnimationFrame(fitToViewport);
     return ()=>cancelAnimationFrame(id);
   },[tree, layout, yGap, xScaleWidth, fitToViewport]);
   useEffect(()=>{
+    if(userAdjustedZoomRef.current) return;
     const id=requestAnimationFrame(fitToViewport);
     return ()=>cancelAnimationFrame(id);
   },[canvasOnlyMode, fitToViewport]);
   useEffect(()=>{
     if(canvasOnlyMode) return;
-    setTimeout(()=>fitToViewport(), 10);
+    if(userAdjustedZoomRef.current) return;
+    const id=setTimeout(()=>fitToViewport(), 10);
+    return ()=>clearTimeout(id);
   },[fitToViewport, canvasOnlyMode, leftPaneRatio]);
   useEffect(()=>{
     if(canvasOnlyMode) return;
@@ -1608,6 +1660,11 @@ export default function TreeEditor(){
     const id=setTimeout(()=>setNewickCopyState("idle"), 2000);
     return ()=>clearTimeout(id);
   },[newickCopyState]);
+  useEffect(()=>{
+    if(pngCopyState==="idle") return;
+    const id=setTimeout(()=>setPngCopyState("idle"), 2000);
+    return ()=>clearTimeout(id);
+  },[pngCopyState]);
 
   const handleSearchNavigate = useCallback((direction: 1 | -1)=>{
     setSearchFocusIndex(prev=>{
@@ -1827,7 +1884,24 @@ export default function TreeEditor(){
       finalize();
     }
   }
-  function actionFlipNode(){ if(!selection) return; const id=selection.type==='node'?selection.id:selection.childId; const t=findById(tree,id); if(!t?.children) return; t.children.reverse(); commitTree(clone(tree), { preserveZoom: true }); setMenu({...menu,visible:false}); }
+  function actionFlipNode(){
+    if(!selection) return;
+    const id=selection.type==='node'?selection.id:selection.childId;
+    const t=findById(tree,id);
+    if(!t?.children) return;
+    const currentTransform = zoomTransformRef.current ?? d3.zoomIdentity;
+    const anchor = nodePositionsById.get(id);
+    if(anchor && Number.isFinite(currentTransform.k)){
+      const screenX = anchor.x * currentTransform.k + currentTransform.x + baseTranslateX;
+      const screenY = anchor.y * currentTransform.k + currentTransform.y + baseTranslateY;
+      pendingZoomAnchorRef.current = { transform: currentTransform, anchorId: id, screenX, screenY };
+    }else{
+      pendingZoomAnchorRef.current = { transform: currentTransform };
+    }
+    t.children.reverse();
+    commitTree(clone(tree), { preserveZoom: true });
+    setMenu({...menu,visible:false});
+  }
   function ladderizeTipBottom(root: TreeNode, tipId: number){
     const hasTip=(n: TreeNode)=>containsTipId(n,tipId);
     (function rec(n: TreeNode){
@@ -2097,7 +2171,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     a.click();
   }
   async function downloadSVG(){ const blob=buildStandaloneSVGBlobWithScaleBar(); if(!blob) return; const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tree.svg'; a.click(); }
-  async function downloadPNG(){
+  async function renderPNGCanvas(){
     const svgBlob=buildStandaloneSVGBlobWithScaleBar(); if(!svgBlob) return;
     const src=await svgBlob.text(); const { Canvg } = await import('canvg');
     // Derive canvas size from viewBox
@@ -2106,10 +2180,36 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     const scale = Math.max(1, pngScale); // high-resolution PNG scaling factor
     const canvas=document.createElement('canvas'); canvas.width=w*scale; canvas.height=h*scale;
     const ctx=canvas.getContext('2d');
-    if(!ctx) return;
+    if(!ctx) return null;
     ctx.setTransform(scale,0,0,scale,0,0); // scale internal drawing
     const v=await Canvg.from(ctx, src); await v.render();
+    return canvas;
+  }
+  async function downloadPNG(){
+    const canvas=await renderPNGCanvas();
+    if(!canvas) return;
     const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download='tree.png'; a.click();
+  }
+  async function copyPNGToClipboard(){
+    try{
+      if(typeof navigator === "undefined" || typeof window === "undefined") throw new Error("Clipboard API unavailable");
+      if(!navigator.clipboard?.write) throw new Error("Clipboard API unavailable");
+      if(!("ClipboardItem" in window)) throw new Error("ClipboardItem unavailable");
+      if(!window.isSecureContext) throw new Error("Clipboard API requires secure context");
+      const blobPromise = (async ()=>{
+        const canvas = await renderPNGCanvas();
+        if(!canvas) throw new Error("PNG render failed");
+        const blob = await new Promise<Blob | null>((resolve)=>canvas.toBlob(resolve, "image/png"));
+        if(!blob) throw new Error("PNG blob unavailable");
+        return blob;
+      })();
+      const item = new ClipboardItem({ "image/png": blobPromise });
+      await navigator.clipboard.write([item]);
+      setPngCopyState("copied");
+    }catch(err){
+      console.warn("Failed to copy PNG via Clipboard API", err);
+      setPngCopyState("error");
+    }
   }
   async function downloadPDF(){
     // Prefer vector output via svg2pdf.js; fall back to raster if unavailable
@@ -2689,7 +2789,10 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               </label>
               <div className="grid grid-cols-2 gap-2 items-center">
                 <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
-                <label className="flex items-center justify-end gap-3 text-sm text-slate-600 text-right">
+                <button className={BUTTON_CLASSES} onClick={copyPNGToClipboard}>
+                  {pngCopyState==="copied"?t("copied","Copied!"):pngCopyState==="error"?t("copyFailed","Copy failed"):t("copyPng","Copy PNG")}
+                </button>
+                <label className="col-span-2 flex items-center justify-end gap-3 text-sm text-slate-600 text-right">
                   <span className="font-medium">{t("scaleLabel","Scale (x)")}</span>
                   <input
                     type="number"
@@ -2763,10 +2866,13 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
       {!canvasOnlyMode && (
         <div className="border-b border-white/30 bg-white/70 backdrop-blur">
           <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <a
+              href={HOMEPAGE_URL}
+              className="flex items-center gap-3 rounded-lg px-2 py-1 transition hover:bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#286699]/40"
+            >
               <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
               <span className="text-sm text-slate-500">{t("headerTagline","Interactive editor for phylogenies")}</span>
-            </div>
+            </a>
             <div className="flex items-center gap-3">
               <div className="flex rounded-full border border-[#286699]/30 bg-white/80 text-sm font-semibold overflow-hidden">
                 {(["en","jp"] as Locale[]).map((code)=>(
