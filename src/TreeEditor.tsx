@@ -126,6 +126,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     currentNewick: "NEWICK",
     copy: "Copy",
     copyPng: "Copy PNG",
+    copySvg: "Copy SVG",
     copied: "Copied!",
     copyFailed: "Copy failed",
     imageExports: "Image exports",
@@ -198,6 +199,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     currentNewick: "現在のNEWICK",
     copy: "コピー",
     copyPng: "PNGをコピー",
+    copySvg: "SVGをコピー",
     copied: "コピーしました",
     copyFailed: "コピー失敗",
     imageExports: "画像出力",
@@ -581,7 +583,6 @@ export default function TreeEditor(){
   const branchLengthPrecisionSafe = useMemo(()=>Math.min(6, Math.max(0, Math.round(branchLengthPrecision))),[branchLengthPrecision]);
   const menuDragHandlers = useRef<{ move: (ev: MouseEvent)=>void; up: (ev?: MouseEvent)=>void } | null>(null);
   const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
-  const [pngCopyState,setPngCopyState]=useState<"idle"|"copied"|"error">("idle");
   const cladogramDomainRef = useRef(1);
   const suppressClickRef = useRef(false);
   const newickQueryAppliedRef = useRef(false);
@@ -1483,7 +1484,9 @@ export default function TreeEditor(){
     const spacing = computeAutoVerticalSpacing();
     if(Math.abs(yGap - spacing) > 0.5){
       setYGap(spacing);
-      requestAnimationFrame(()=>fitToViewport());
+      if(!userAdjustedZoomRef.current){
+        requestAnimationFrame(()=>fitToViewport());
+      }
     }
   },[computeAutoVerticalSpacing, fitToViewport, yGap, autoLayoutVersion]);
   useEffect(()=>{
@@ -1660,11 +1663,6 @@ export default function TreeEditor(){
     const id=setTimeout(()=>setNewickCopyState("idle"), 2000);
     return ()=>clearTimeout(id);
   },[newickCopyState]);
-  useEffect(()=>{
-    if(pngCopyState==="idle") return;
-    const id=setTimeout(()=>setPngCopyState("idle"), 2000);
-    return ()=>clearTimeout(id);
-  },[pngCopyState]);
 
   const handleSearchNavigate = useCallback((direction: 1 | -1)=>{
     setSearchFocusIndex(prev=>{
@@ -2189,27 +2187,6 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     const canvas=await renderPNGCanvas();
     if(!canvas) return;
     const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download='tree.png'; a.click();
-  }
-  async function copyPNGToClipboard(){
-    try{
-      if(typeof navigator === "undefined" || typeof window === "undefined") throw new Error("Clipboard API unavailable");
-      if(!navigator.clipboard?.write) throw new Error("Clipboard API unavailable");
-      if(!("ClipboardItem" in window)) throw new Error("ClipboardItem unavailable");
-      if(!window.isSecureContext) throw new Error("Clipboard API requires secure context");
-      const blobPromise = (async ()=>{
-        const canvas = await renderPNGCanvas();
-        if(!canvas) throw new Error("PNG render failed");
-        const blob = await new Promise<Blob | null>((resolve)=>canvas.toBlob(resolve, "image/png"));
-        if(!blob) throw new Error("PNG blob unavailable");
-        return blob;
-      })();
-      const item = new ClipboardItem({ "image/png": blobPromise });
-      await navigator.clipboard.write([item]);
-      setPngCopyState("copied");
-    }catch(err){
-      console.warn("Failed to copy PNG via Clipboard API", err);
-      setPngCopyState("error");
-    }
   }
   async function downloadPDF(){
     // Prefer vector output via svg2pdf.js; fall back to raster if unavailable
@@ -2781,35 +2758,36 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 />
               </div>
             </div>
-            <div className="space-y-3 pt-1">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("imageExports","Image exports")}</div>
-              <label className="flex items-center gap-2 text-slate-600 text-sm">
-                <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
-                <span className="font-medium">{t("italicTips","Italic tip labels")}</span>
-              </label>
-              <div className="grid grid-cols-2 gap-2 items-center">
-                <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
-                <button className={BUTTON_CLASSES} onClick={copyPNGToClipboard}>
-                  {pngCopyState==="copied"?t("copied","Copied!"):pngCopyState==="error"?t("copyFailed","Copy failed"):t("copyPng","Copy PNG")}
-                </button>
-                <label className="col-span-2 flex items-center justify-end gap-3 text-sm text-slate-600 text-right">
-                  <span className="font-medium">{t("scaleLabel","Scale (x)")}</span>
-                  <input
-                    type="number"
-                    className={`${INPUT_CLASSES} w-20`}
-                    value={pngScale}
-                    min={1}
-                    step={1}
-                    onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))}
-                  />
+              <div className="space-y-3 pt-1">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("imageExports","Image exports")}</div>
+                <label className="flex items-center gap-2 text-slate-600 text-sm">
+                  <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
+                  <span className="font-medium">{t("italicTips","Italic tip labels")}</span>
                 </label>
-                <button className={BUTTON_CLASSES} onClick={downloadSVG}>{t("svg","SVG")}</button>
-                <button className={BUTTON_CLASSES} onClick={downloadPDF}>{t("pdfVector","PDF (vector)")}</button>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 items-center">
+                    <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
+                    <label className="flex items-center justify-start gap-2 text-sm text-slate-600">
+                      <span className="font-medium">{t("scaleLabel","Scale (x)")}</span>
+                      <input
+                        type="number"
+                        className={`${INPUT_CLASSES} w-20`}
+                        value={pngScale}
+                        min={1}
+                        step={1}
+                        onChange={(e)=>setPngScale(Math.max(1, parseInt(e.target.value)||3))}
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button className={BUTTON_CLASSES} onClick={downloadSVG}>{t("svg","SVG")}</button>
+                    <button className={BUTTON_CLASSES} onClick={downloadPDF}>{t("pdfVector","PDF (vector)")}</button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        );
-      default:
+          );
+        default:
         return null;
     }
   };
