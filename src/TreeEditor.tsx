@@ -576,6 +576,9 @@ export default function TreeEditor(){
   const [regexError,setRegexError]=useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"data" | "selection" | "rendering" | "export">("data");
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
+  const searchPopoverRef = useRef<HTMLDivElement | null>(null);
+  const selectionMenuRef = useRef<HTMLDivElement | null>(null);
+  const miniWindowMouseDownInsideRef = useRef(false);
   const [paneDimensions, setPaneDimensions] = useState({ w: 1200, h: 600 });
   const [autoLayoutVersion, setAutoLayoutVersion] = useState(0);
   const textMeasureCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1249,12 +1252,22 @@ export default function TreeEditor(){
   },[hideContextMenu]);
 
   const handleCanvasBackgroundClick = useCallback((e: React.MouseEvent<HTMLDivElement>)=>{
+    if(miniWindowMouseDownInsideRef.current){
+      miniWindowMouseDownInsideRef.current = false;
+      e.stopPropagation();
+      return;
+    }
     if(e.target !== e.currentTarget) return;
     e.stopPropagation();
     clearSelectionState();
   },[clearSelectionState]);
 
   const handleSvgBlankClick = useCallback((e: React.MouseEvent<SVGSVGElement>)=>{
+    if(miniWindowMouseDownInsideRef.current){
+      miniWindowMouseDownInsideRef.current = false;
+      e.stopPropagation();
+      return;
+    }
     e.stopPropagation();
     clearSelectionState();
   },[clearSelectionState]);
@@ -2767,7 +2780,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2 items-center">
                     <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
-                    <label className="flex items-center justify-start gap-2 text-sm text-slate-600">
+                    <label className="flex items-center justify-end gap-2 text-sm text-slate-600 text-right">
                       <span className="font-medium">{t("scaleLabel","Scale (x)")}</span>
                       <input
                         type="number"
@@ -2839,8 +2852,40 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     window.addEventListener("mouseup", up);
   };
 
+  const handleRootMouseDownCapture = useCallback((e: React.MouseEvent<HTMLDivElement>)=>{
+    if(!menu.visible && !searchPopoverOpen){
+      miniWindowMouseDownInsideRef.current = false;
+      return;
+    }
+    const target = e.target as Node | null;
+    if(!target){
+      miniWindowMouseDownInsideRef.current = false;
+      return;
+    }
+    const startedInSearch = searchPopoverRef.current?.contains(target) ?? false;
+    const startedInMenu = selectionMenuRef.current?.contains(target) ?? false;
+    miniWindowMouseDownInsideRef.current = startedInSearch || startedInMenu;
+  },[menu.visible, searchPopoverOpen]);
+
+  const handleRootClick = useCallback(()=>{
+    if(miniWindowMouseDownInsideRef.current){
+      miniWindowMouseDownInsideRef.current = false;
+      return;
+    }
+    if(menu.visible){
+      setMenu(prev=>prev.visible ? { ...prev, visible:false } : prev);
+    }
+    if(searchPopoverOpen){
+      setSearchPopoverOpen(false);
+    }
+  },[menu.visible, searchPopoverOpen]);
+
   return (
-    <div className={canvasOnlyMode ? "min-h-screen bg-white text-slate-900" : "min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"} onClick={()=>{ if(menu.visible) setMenu({...menu,visible:false}); if(searchPopoverOpen) setSearchPopoverOpen(false); }}>
+    <div
+      className={canvasOnlyMode ? "min-h-screen bg-white text-slate-900" : "min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"}
+      onMouseDownCapture={handleRootMouseDownCapture}
+      onClick={handleRootClick}
+    >
       {!canvasOnlyMode && (
         <div className="border-b border-white/30 bg-white/70 backdrop-blur">
           <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
@@ -3027,7 +3072,10 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
               </div>
               <div className="flex flex-wrap items-end justify-end gap-4">
                 <label className="flex items-center gap-3 text-[0.85rem] font-semibold text-slate-700">
-                  <span className="uppercase tracking-wide text-[0.75rem] text-slate-500">↔ Horizontal scale</span>
+                  <span className="inline-flex items-center gap-2 uppercase tracking-wide text-[0.75rem] text-slate-600">
+                    <span className="text-lg font-extrabold text-[#286699] leading-none">↔</span>
+                    <span>Horizontal scale</span>
+                  </span>
                   <input
                     type="range"
                     min={200}
@@ -3040,7 +3088,10 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   <span className="text-slate-700 w-12 text-right text-sm">{Math.round(xScaleWidth)}</span>
                 </label>
                 <label className="flex items-center gap-3 text-[0.85rem] font-semibold text-slate-700">
-                  <span className="uppercase tracking-wide text-[0.75rem] text-slate-500">↕ Vertical spacing</span>
+                  <span className="inline-flex items-center gap-2 uppercase tracking-wide text-[0.75rem] text-slate-600">
+                    <span className="text-lg font-extrabold text-[#286699] leading-none">↕</span>
+                    <span>Vertical spacing</span>
+                  </span>
                   <input
                     type="range"
                     min={1}
@@ -3054,7 +3105,11 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 </label>
               </div>
               {searchPopoverOpen && (
-                <div className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700" onClick={(e)=>e.stopPropagation()}>
+                <div
+                  ref={searchPopoverRef}
+                  className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700"
+                  onClick={(e)=>{ e.stopPropagation(); miniWindowMouseDownInsideRef.current = false; }}
+                >
                   <div className="flex items-center justify-between mb-3">
                     <span className="font-semibold">{t("searchLeaves","Search leaves")}</span>
                     <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>{t("close","Close")}</button>
@@ -3367,7 +3422,12 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
 
           {/* Context menu */}
           {menu.visible && activeTab!=="selection" && (
-            <div className="absolute z-40 bg-white border border-slate-200 rounded-2xl shadow-xl px-3 py-3 text-[0.95rem] text-slate-800" style={{ left:menu.left, top:menu.top, width:260 }} onClick={(e)=>e.stopPropagation()}>
+            <div
+              ref={selectionMenuRef}
+              className="absolute z-40 bg-white border border-slate-200 rounded-2xl shadow-xl px-3 py-3 text-[0.95rem] text-slate-800"
+              style={{ left:menu.left, top:menu.top, width:260 }}
+              onClick={(e)=>{ e.stopPropagation(); miniWindowMouseDownInsideRef.current = false; }}
+            >
               <div className="flex items-center justify-between mb-3 cursor-move select-none text-sm font-medium text-slate-600" onMouseDown={startMenuDrag}>
                 <span>Selection actions</span>
                 <span className="text-xs text-slate-400">Drag</span>
