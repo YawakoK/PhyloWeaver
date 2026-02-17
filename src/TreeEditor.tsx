@@ -834,8 +834,8 @@ export default function TreeEditor(){
   const userSetWidthRef = useRef<boolean>(false);
   const userSetYGapRef = useRef<boolean>(false);
   const baseTranslateX = 80;
-  const baseTranslateY = 320;
-  const treeViewYOffset = 30;
+  const baseTranslateY = 40;
+  const treeViewYOffset = 1;
 
   const refreshPaneDimensions = useCallback(()=>{
     const pane = rightPaneRef.current;
@@ -1435,7 +1435,7 @@ export default function TreeEditor(){
   },[computeAutoHorizontalScale, fitToViewport]);
 
   const computeAutoVerticalSpacing = useCallback(()=>{
-    const paneHeight = Math.max(200, paneDimensions.h - 160);
+    const paneHeight = Math.max(100, paneDimensions.h - 160);
     const leaves = Math.max(1, tipCount);
     if(leaves > 50){
       return 15;
@@ -1445,7 +1445,7 @@ export default function TreeEditor(){
     const comfortSpacing = Math.min(200, comfortableBase * (1 + Math.log10(leaves + 1) * 0.45));
     const cappedComfort = Math.min(200, Math.max(baseSpacing, comfortSpacing));
     const smallTreeCap = leaves <= 50
-      ? Math.max(12, Math.floor((paneHeight - 80) / Math.max(1, leaves + 4)))
+      ? Math.max(20, Math.floor((paneHeight - 80) / Math.max(1, leaves + 4)))
       : null;
     const spacing = smallTreeCap ? Math.min(cappedComfort, smallTreeCap) : cappedComfort;
     return Math.round(Math.max(12, spacing));

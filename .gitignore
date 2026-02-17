@@ -29,3 +29,4 @@ src/backup
 src/assets/icons/Thumbs.db
 @eaDir/
 testtree/
+public/@eaDir
