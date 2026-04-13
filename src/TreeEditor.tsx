@@ -12,6 +12,15 @@ import FlipIconSvg from "./assets/icons/Flip.svg";
 import DeleteIconSvg from "./assets/icons/Delete.svg";
 
 type LayoutMode = "phylogram" | "cladogram";
+type ExportSizeMode = "auto" | "custom";
+type ScaleBarLabelPosition =
+  | "top-start"
+  | "top-center"
+  | "top-end"
+  | "bottom-start"
+  | "bottom-center"
+  | "bottom-end";
+type ScaleBarCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
 type TreeNode = {
   __id?: number;
@@ -70,6 +79,19 @@ const HOMEPAGE_URL = "https://yawak.jp/PhyloWeaver/";
 const GITHUB_URL = "https://github.com/YawakoK/PhyloWeaver";
 const HISTORY_LIMIT = 50;
 const READABLE_FIT_SCALE = 0.85;
+const DEFAULT_EXPORT_WIDTH = 1600;
+const DEFAULT_EXPORT_HEIGHT = 1000;
+const MIN_EXPORT_SIZE = 32;
+const MAX_EXPORT_SIZE = 50000;
+const SCALE_BAR_LABEL_POSITIONS: ScaleBarLabelPosition[] = [
+  "top-start",
+  "top-center",
+  "top-end",
+  "bottom-start",
+  "bottom-center",
+  "bottom-end"
+];
+const SCALE_BAR_CORNERS: ScaleBarCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
 const nodeSelectionKey = (id: number) => `node-${id}`;
 const linkSelectionKey = (parentId: number, childId: number) => `link-${parentId}-${childId}`;
 type Locale = "en" | "jp";
@@ -145,7 +167,29 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     png: "PNG",
     svg: "SVG",
     pdfVector: "PDF (vector)",
-    tipStyling: "Tip styling"
+    tipStyling: "Tip styling",
+    outputSize: "Output size",
+    autoSize: "Auto size",
+    customSize: "Custom size",
+    widthPx: "Width (px)",
+    heightPx: "Height (px)",
+    keepAspectRatio: "Keep aspect ratio",
+    scaleBar: "Scale bar",
+    scaleBarTextSize: "Scale bar text size",
+    scaleBarLabelPosition: "Scale bar label position",
+    scaleBarExportCorner: "Scale bar corner",
+    outputPreview: "Output preview",
+    estimatedSize: "Estimated size",
+    topLeft: "Top left",
+    topRight: "Top right",
+    bottomLeft: "Bottom left",
+    bottomRight: "Bottom right",
+    topStart: "Top left",
+    topCenter: "Top center",
+    topEnd: "Top right",
+    bottomStart: "Bottom left",
+    bottomCenter: "Bottom center",
+    bottomEnd: "Bottom right"
   },
   jp: {
     dataTab: "データ",
@@ -218,16 +262,39 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     png: "PNG",
     svg: "SVG",
     pdfVector: "PDF（ベクター）",
-    tipStyling: "葉ラベル調整"
+    tipStyling: "葉ラベル調整",
+    outputSize: "出力サイズ",
+    autoSize: "自動サイズ",
+    customSize: "カスタムサイズ",
+    widthPx: "幅 (px)",
+    heightPx: "高さ (px)",
+    keepAspectRatio: "縦横比を維持",
+    scaleBar: "スケールバー",
+    scaleBarTextSize: "スケールバー文字サイズ",
+    scaleBarLabelPosition: "スケールバー数字位置",
+    scaleBarExportCorner: "スケールバー配置",
+    outputPreview: "出力プレビュー",
+    estimatedSize: "推定サイズ",
+    topLeft: "左上",
+    topRight: "右上",
+    bottomLeft: "左下",
+    bottomRight: "右下",
+    topStart: "上 左",
+    topCenter: "上 中央",
+    topEnd: "上 右",
+    bottomStart: "下 左",
+    bottomCenter: "下 中央",
+    bottomEnd: "下 右"
   }
 };
 
 type ColorSelectorProps = {
   selectedColor?: string | null;
   onSelect: (color: string)=>void;
+  compact?: boolean;
 };
 
-function ColorSelector({ selectedColor, onSelect }: ColorSelectorProps){
+function ColorSelector({ selectedColor, onSelect, compact = false }: ColorSelectorProps){
   const [showCustom, setShowCustom] = useState(false);
   const [customValue, setCustomValue] = useState(()=> (selectedColor ?? COLOR_PRESETS[0]).toUpperCase());
   const normalized = selectedColor?.toLowerCase() ?? null;
@@ -254,8 +321,8 @@ function ColorSelector({ selectedColor, onSelect }: ColorSelectorProps){
     }
   };
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={compact ? "space-y-1.5" : "space-y-2"}>
+      <div className={compact ? "flex flex-wrap items-center gap-1" : "flex flex-wrap items-center gap-2"}>
         {COLOR_PRESETS.map((color)=>{
           const isActive = normalized === color.toLowerCase();
           return (
@@ -263,7 +330,7 @@ function ColorSelector({ selectedColor, onSelect }: ColorSelectorProps){
               key={color}
               type="button"
               onClick={()=>onSelect(color)}
-              className={`h-8 w-8 rounded-lg border transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 ${isActive ? "border-sky-500 ring-2 ring-sky-400" : "border-slate-200"}`}
+              className={`${compact ? "h-5 w-5 rounded-md" : "h-8 w-8 rounded-lg"} border transition-shadow focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 ${isActive ? "border-sky-500 ring-2 ring-sky-400" : "border-slate-200"}`}
               style={{ backgroundColor: color }}
               aria-label={`Select color ${color}`}
             />
@@ -272,27 +339,27 @@ function ColorSelector({ selectedColor, onSelect }: ColorSelectorProps){
         <button
           type="button"
           onClick={()=>setShowCustom(v=>!v)}
-          className="px-3 py-1 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+          className={`${compact ? "px-1.5 py-0 text-[0.65rem]" : "px-3 py-1 text-xs"} font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1`}
         >
           {showCustom ? "Hide" : "More"}
         </button>
       </div>
       {showCustom && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={compact ? "flex flex-wrap items-center gap-1" : "flex flex-wrap items-center gap-2"}>
           <input
             type="color"
             value={/^#([0-9a-fA-F]{6})$/.test(customValue) ? customValue.toLowerCase() : "#000000"}
             onChange={(e)=>{ const next = e.target.value.toUpperCase(); setCustomValue(next); onSelect(next.toLowerCase()); }}
-            className="h-9 w-12 rounded-lg border border-slate-200 bg-transparent p-0"
+            className={`${compact ? "h-7 w-9 rounded-md" : "h-9 w-12 rounded-lg"} border border-slate-200 bg-transparent p-0`}
           />
           <input
             type="text"
             value={customValue}
             onChange={(e)=>handleHexInput(e.target.value)}
             placeholder="#000000"
-            className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+            className={`${compact ? "w-20 rounded-md px-1.5 py-0.5 text-xs" : "w-24 rounded-lg px-2 py-1 text-sm"} border border-slate-200 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1`}
           />
-          <span className="text-xs text-slate-600">Enter hex code</span>
+          {!compact && <span className="text-xs text-slate-600">Enter hex code</span>}
         </div>
       )}
     </div>
@@ -381,6 +448,61 @@ function mapTipCounts(node: TreeNode | null | undefined, map: Map<number, number
   const sum = node.children.reduce((acc, child) => acc + mapTipCounts(child, map), 0);
   if (node.__id !== undefined) map.set(node.__id, sum);
   return sum;
+}
+function clampExportDimension(value: number): number {
+  if(!Number.isFinite(value)) return MIN_EXPORT_SIZE;
+  return Math.max(MIN_EXPORT_SIZE, Math.min(MAX_EXPORT_SIZE, Math.round(value)));
+}
+function parseExportDimensionInput(value: string): number | null {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? clampExportDimension(parsed) : null;
+}
+function computeAxisStretchScale(targetSize: number, naturalContentSize: number, anchorSpan: number, padding: number): number {
+  const targetContentSize = Math.max(1, targetSize - padding * 2);
+  const safeAnchorSpan = Math.max(1, anchorSpan);
+  const fixedContentSize = Math.max(0, naturalContentSize - safeAnchorSpan);
+  const scale = (targetContentSize - fixedContentSize) / safeAnchorSpan;
+  return Number.isFinite(scale) ? Math.max(0.01, scale) : 1;
+}
+function formatSvgNumber(value: number): string {
+  if(!Number.isFinite(value)) return "0";
+  return Number(value.toFixed(6)).toString();
+}
+function parseSvgTranslate(transform: string | null): [number, number] | null {
+  if(!transform) return null;
+  const match = transform.match(/^translate\(\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(?:,|\s)\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*\)/i);
+  if(!match) return null;
+  const x = Number(match[1]);
+  const y = Number(match[2]);
+  return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+}
+function stretchExportGeometryWithoutText(group: SVGGElement, scaleX: number, scaleY: number, dx: number, dy: number) {
+  const matrix = `matrix(${formatSvgNumber(scaleX)} 0 0 ${formatSvgNumber(scaleY)} ${formatSvgNumber(dx)} ${formatSvgNumber(dy)})`;
+  group.querySelectorAll<SVGPathElement>("path").forEach(path=>{
+    if(path.closest('g[transform^="translate("]')) return;
+    path.setAttribute("transform", matrix);
+    path.setAttribute("vector-effect", "non-scaling-stroke");
+  });
+  group.querySelectorAll<SVGTextElement>("text").forEach(text=>{
+    if(text.closest('g[transform^="translate("]')) return;
+    const x = parseFloat(text.getAttribute("x") ?? "");
+    const y = parseFloat(text.getAttribute("y") ?? "");
+    if(Number.isFinite(x)) text.setAttribute("x", formatSvgNumber(scaleX * x + dx));
+    if(Number.isFinite(y)) text.setAttribute("y", formatSvgNumber(scaleY * y + dy));
+  });
+  group.querySelectorAll<SVGGElement>('g[transform^="translate("]').forEach(nodeGroup=>{
+    const translate = parseSvgTranslate(nodeGroup.getAttribute("transform"));
+    if(!translate) return;
+    const [x, y] = translate;
+    nodeGroup.setAttribute("transform", `translate(${formatSvgNumber(scaleX * x + dx)},${formatSvgNumber(scaleY * y + dy)})`);
+  });
+}
+function computeFitTranslation(boxStart: number, boxSize: number, targetStart: number, targetSize: number): number {
+  if(!Number.isFinite(boxStart) || !Number.isFinite(boxSize)) return 0;
+  if(boxSize <= targetSize){
+    return targetStart + (targetSize - boxSize) / 2 - boxStart;
+  }
+  return targetStart - boxStart;
 }
 let __ID = 1;
 const nextId = () => __ID++;
@@ -565,6 +687,14 @@ export default function TreeEditor(){
   const [search,setSearch]=useState("");
   const [searchFocusIndex,setSearchFocusIndex]=useState(0);
   const [zoomK,setZoomK]=useState(1);
+  const [scaleBarLabelSize,setScaleBarLabelSize]=useState(11);
+  const [scaleBarLabelPosition,setScaleBarLabelPosition]=useState<ScaleBarLabelPosition>("bottom-start");
+  const [exportScaleBarCorner,setExportScaleBarCorner]=useState<ScaleBarCorner>("top-left");
+  const [exportSizeMode,setExportSizeMode]=useState<ExportSizeMode>("auto");
+  const [exportWidthInput,setExportWidthInput]=useState(String(DEFAULT_EXPORT_WIDTH));
+  const [exportHeightInput,setExportHeightInput]=useState(String(DEFAULT_EXPORT_HEIGHT));
+  const [exportKeepAspect,setExportKeepAspect]=useState(true);
+  const [exportPreview,setExportPreview]=useState<{ url: string; width: number; height: number } | null>(null);
   const [branchLengthInput,setBranchLengthInput]=useState("");
   const [branchWidthInput,setBranchWidthInput]=useState(()=>String(1.5));
   const [tipNameInput,setTipNameInput]=useState("");
@@ -593,6 +723,76 @@ export default function TreeEditor(){
   const currentNewick = useMemo(()=>toNewick(tree, { includeLengths: layout!=="cladogram" }),[tree, layout]);
   const [currentNewickEditable,setCurrentNewickEditable]=useState(currentNewick);
   useEffect(()=>{ setCurrentNewickEditable(currentNewick); },[currentNewick]);
+  const scaleBarPlacement = useMemo(()=>{
+    const [vertical, horizontal] = scaleBarLabelPosition.split("-") as ["top" | "bottom", "start" | "center" | "end"];
+    const textAnchor = horizontal === "center" ? "middle" : horizontal;
+    const htmlAlignClass = horizontal === "start" ? "items-start" : horizontal === "center" ? "items-center" : "items-end";
+    const htmlTextAlignClass = horizontal === "start" ? "text-left" : horizontal === "center" ? "text-center" : "text-right";
+    return { vertical, horizontal, textAnchor, htmlAlignClass, htmlTextAlignClass };
+  },[scaleBarLabelPosition]);
+  const scaleBarPositionLabel = useCallback((position: ScaleBarLabelPosition)=>{
+    switch(position){
+      case "top-start": return t("topStart","Top left");
+      case "top-center": return t("topCenter","Top center");
+      case "top-end": return t("topEnd","Top right");
+      case "bottom-start": return t("bottomStart","Bottom left");
+      case "bottom-center": return t("bottomCenter","Bottom center");
+      case "bottom-end": return t("bottomEnd","Bottom right");
+      default: return position;
+    }
+  },[t]);
+  const scaleBarCornerLabel = useCallback((corner: ScaleBarCorner)=>{
+    switch(corner){
+      case "top-left": return t("topLeft","Top left");
+      case "top-right": return t("topRight","Top right");
+      case "bottom-left": return t("bottomLeft","Bottom left");
+      case "bottom-right": return t("bottomRight","Bottom right");
+      default: return corner;
+    }
+  },[t]);
+  const resolveExportDimensions = useCallback((naturalWidth: number, naturalHeight: number)=>{
+    const safeNaturalWidth = clampExportDimension(naturalWidth);
+    const safeNaturalHeight = clampExportDimension(naturalHeight);
+    if(exportSizeMode === "auto"){
+      return { width: safeNaturalWidth, height: safeNaturalHeight, custom: false };
+    }
+    const requestedWidth = parseExportDimensionInput(exportWidthInput);
+    const requestedHeight = parseExportDimensionInput(exportHeightInput);
+    const naturalRatio = safeNaturalWidth / Math.max(1, safeNaturalHeight);
+    if(requestedWidth !== null && requestedHeight !== null){
+      return { width: requestedWidth, height: requestedHeight, custom: true };
+    }
+    if(requestedWidth !== null){
+      const height = exportKeepAspect ? clampExportDimension(requestedWidth / naturalRatio) : safeNaturalHeight;
+      return { width: requestedWidth, height, custom: true };
+    }
+    if(requestedHeight !== null){
+      const width = exportKeepAspect ? clampExportDimension(requestedHeight * naturalRatio) : safeNaturalWidth;
+      return { width, height: requestedHeight, custom: true };
+    }
+    return { width: safeNaturalWidth, height: safeNaturalHeight, custom: false };
+  },[exportSizeMode, exportWidthInput, exportHeightInput, exportKeepAspect]);
+  const getExportInputRatio = useCallback(()=>{
+    const width = parseExportDimensionInput(exportWidthInput) ?? DEFAULT_EXPORT_WIDTH;
+    const height = parseExportDimensionInput(exportHeightInput) ?? DEFAULT_EXPORT_HEIGHT;
+    return width / Math.max(1, height);
+  },[exportWidthInput, exportHeightInput]);
+  const handleExportWidthInputChange = useCallback((value: string)=>{
+    setExportWidthInput(value);
+    const nextWidth = parseExportDimensionInput(value);
+    if(exportKeepAspect && nextWidth !== null){
+      const ratio = getExportInputRatio();
+      setExportHeightInput(String(clampExportDimension(nextWidth / ratio)));
+    }
+  },[exportKeepAspect, getExportInputRatio]);
+  const handleExportHeightInputChange = useCallback((value: string)=>{
+    setExportHeightInput(value);
+    const nextHeight = parseExportDimensionInput(value);
+    if(exportKeepAspect && nextHeight !== null){
+      const ratio = getExportInputRatio();
+      setExportWidthInput(String(clampExportDimension(nextHeight * ratio)));
+    }
+  },[exportKeepAspect, getExportInputRatio]);
   const newickStats = useMemo(()=>{
     let internalNodes=0;
     let branchCount=0;
@@ -789,8 +989,10 @@ export default function TreeEditor(){
         minWidth: 320,
         maxWidth: 720,
         flexShrink:0,
-        overflow:"auto",
-        position:"relative"
+        overflow:"hidden",
+        position:"relative",
+        height:"calc(95vh)",
+        maxHeight:"calc(95vh)"
       };
     }
     const pct = Math.round(leftPaneRatio*100);
@@ -800,8 +1002,10 @@ export default function TreeEditor(){
       minWidth: 320,
       maxWidth: 720,
       flexShrink:0,
-      overflow:"auto",
-      position:"relative"
+      overflow:"hidden",
+      position:"relative",
+      height:"calc(95vh)",
+      maxHeight:"calc(95vh)"
     };
   },[canvasOnlyMode, leftPaneWidth, leftPaneRatio]);
 
@@ -1073,6 +1277,19 @@ export default function TreeEditor(){
     });
     return map;
   },[nodes]);
+  const exportPreviewDimensions = useMemo(()=>{
+    const pad=Math.max(20, Math.ceil(scaleBarLabelSize + 16));
+    const naturalWidth = clampExportDimension(Math.max(1, xExtent[1] - xExtent[0]) + pad*2);
+    const naturalHeight = clampExportDimension(Math.max(1, yExtent[1] - yExtent[0]) + pad*2);
+    const dimensions = resolveExportDimensions(naturalWidth, naturalHeight);
+    const ratio = dimensions.width / Math.max(1, dimensions.height);
+    const previewMaxWidth = 220;
+    const previewMaxHeight = 116;
+    const previewWidth = ratio >= previewMaxWidth / previewMaxHeight ? previewMaxWidth : Math.max(28, previewMaxHeight * ratio);
+    const previewHeight = ratio >= previewMaxWidth / previewMaxHeight ? Math.max(28, previewMaxWidth / ratio) : previewMaxHeight;
+    return { ...dimensions, previewWidth, previewHeight };
+  },[xExtent, yExtent, scaleBarLabelSize, resolveExportDimensions]);
+  const exportPreviewSize = exportPreview ?? exportPreviewDimensions;
 
   useLayoutEffect(()=>{
     const pending = pendingZoomAnchorRef.current;
@@ -1124,11 +1341,20 @@ export default function TreeEditor(){
     if(!scale) return null;
     const label = formatScaleUnits(scale.units);
     if(!label) return null;
+    const labelElement = (
+      <span
+        className={`block font-medium text-slate-700 ${scaleBarPlacement.htmlTextAlignClass}`}
+        style={{ width: scale.px, fontSize: scaleBarLabelSize, lineHeight: 1.1 }}
+      >
+        {label}
+      </span>
+    );
+    const barElement = <div className="h-[2px] bg-slate-700" style={{ width: scale.px }} />;
     return (
-      <div className="pointer-events-none absolute left-6 top-4 z-30 bg-transparent px-3 py-2 rounded-xl border border-transparent text-s text-slate-700">
-        <div className="flex flex-col gap-1">
-          <div className="h-[2px] bg-slate-700" style={{ width: scale.px }} />
-          <span className="text-[0.7rem] font-medium text-slate-700">{label}</span>
+      <div className="pointer-events-none absolute left-6 top-4 z-30 bg-transparent px-3 py-2 rounded-xl border border-transparent text-slate-700">
+        <div className={`flex flex-col gap-1 ${scaleBarPlacement.htmlAlignClass}`}>
+          {scaleBarPlacement.vertical === "top" ? labelElement : barElement}
+          {scaleBarPlacement.vertical === "top" ? barElement : labelElement}
         </div>
       </div>
     );
@@ -1392,7 +1618,7 @@ export default function TreeEditor(){
     try{
       const parsed = ensureIds(parseNewick(value));
       commitTree(parsed);
-    }catch(err){
+    }catch{
       // ignore invalid edits until complete
     }
   },[commitTree]);
@@ -2095,66 +2321,119 @@ export default function TreeEditor(){
     return { units, px };
   }
 
-function stripSelectionStylesFromGroup(group: SVGGElement){
-  const edgePaths = group.querySelectorAll<SVGPathElement>('[data-base-stroke]');
-  edgePaths.forEach(path=>{
-    const baseStroke = path.getAttribute('data-base-stroke');
-    if(baseStroke) path.setAttribute('stroke', baseStroke);
+  function stripSelectionStylesFromGroup(group: SVGGElement){
+    const edgePaths = group.querySelectorAll<SVGPathElement>('[data-base-stroke]');
+    edgePaths.forEach(path=>{
+      const baseStroke = path.getAttribute('data-base-stroke');
+      if(baseStroke) path.setAttribute('stroke', baseStroke);
       const baseWidth = path.getAttribute('data-base-width');
       if(baseWidth) path.setAttribute('stroke-width', baseWidth);
-  });
-  const nodeCircles = group.querySelectorAll<SVGCircleElement>('[data-base-fill]');
-  nodeCircles.forEach(circle=>{
-    const baseFill = circle.getAttribute('data-base-fill');
-    if(baseFill) circle.setAttribute('fill', baseFill);
-  });
-  const labelHighlights = group.querySelectorAll<SVGElement>('[data-label-highlight]');
-  labelHighlights.forEach(el=>{
-    el.removeAttribute('stroke');
-    el.removeAttribute('stroke-width');
-    el.removeAttribute('paint-order');
-  });
-}
-  function buildStandaloneSVGBlobWithScaleBar(): Blob | null{
+    });
+    const nodeCircles = group.querySelectorAll<SVGCircleElement>('[data-base-fill]');
+    nodeCircles.forEach(circle=>{
+      const baseFill = circle.getAttribute('data-base-fill');
+      if(baseFill) circle.setAttribute('fill', baseFill);
+    });
+    const labelHighlights = group.querySelectorAll<SVGElement>('[data-label-highlight]');
+    labelHighlights.forEach(el=>{
+      el.removeAttribute('stroke');
+      el.removeAttribute('stroke-width');
+      el.removeAttribute('paint-order');
+    });
+  }
+  const buildStandaloneSVGBlobWithScaleBar = useCallback((): { blob: Blob; width: number; height: number; viewBox: [number, number, number, number] } | null=>{
     const gNode=gRef.current; if(!gNode) return null;
-    const pad=20;
+    const pad=Math.max(20, Math.ceil(scaleBarLabelSize + 16));
     const gClone=gNode.cloneNode(true) as SVGGElement;
-    gClone.setAttribute("transform","translate(0,0) scale(1)");
+    gClone.removeAttribute("transform");
     stripSelectionStylesFromGroup(gClone);
     // Measure bounding box via temporary SVG attachment
     const tmp=document.createElementNS("http://www.w3.org/2000/svg","svg"); tmp.setAttribute("xmlns","http://www.w3.org/2000/svg"); tmp.appendChild(gClone);
     document.body.appendChild(tmp); const bbox=gClone.getBBox(); document.body.removeChild(tmp);
+    const naturalWidth = Math.ceil(bbox.width + pad*2);
+    const naturalHeight = Math.ceil(bbox.height + pad*2);
+    const exportDimensions = resolveExportDimensions(naturalWidth, naturalHeight);
+    const naturalViewBox: [number, number, number, number] = [bbox.x - pad, bbox.y - pad, naturalWidth, naturalHeight];
+    const shouldStretchGeometry = exportDimensions.custom && !exportKeepAspect;
+    const viewBox: [number, number, number, number] = shouldStretchGeometry
+      ? [naturalViewBox[0], naturalViewBox[1], exportDimensions.width, exportDimensions.height]
+      : naturalViewBox;
+    const nodeXs = nodes.map(n=>n.x);
+    const nodeYs = nodes.map(n=>n.y);
+    const nodeSpanX = nodeXs.length ? Math.max(...nodeXs) - Math.min(...nodeXs) : bbox.width;
+    const nodeSpanY = nodeYs.length ? Math.max(...nodeYs) - Math.min(...nodeYs) : bbox.height;
+    const stretchedScaleX = shouldStretchGeometry ? computeAxisStretchScale(exportDimensions.width, bbox.width, nodeSpanX, pad) : 1;
+    const stretchedScaleY = shouldStretchGeometry ? computeAxisStretchScale(exportDimensions.height, bbox.height, nodeSpanY, pad) : 1;
+    const stretchedDx = shouldStretchGeometry ? bbox.x - bbox.x * stretchedScaleX : 0;
+    const stretchedDy = shouldStretchGeometry ? bbox.y - bbox.y * stretchedScaleY : 0;
 
     const out=document.createElementNS("http://www.w3.org/2000/svg","svg");
     out.setAttribute("xmlns","http://www.w3.org/2000/svg");
-    out.setAttribute("viewBox", `${bbox.x - pad} ${bbox.y - pad} ${bbox.width + pad*2} ${bbox.height + pad*2}`);
-    out.setAttribute("width", String(Math.ceil(bbox.width + pad*2)));
-    out.setAttribute("height", String(Math.ceil(bbox.height + pad*2)));
+    out.setAttribute("viewBox", viewBox.join(" "));
+    out.setAttribute("width", String(exportDimensions.width));
+    out.setAttribute("height", String(exportDimensions.height));
+    out.setAttribute("preserveAspectRatio", "xMidYMid meet");
     const fontStack='-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
     out.setAttribute("font-family", fontStack);
     out.setAttribute("style", `font-family:${fontStack}; color:#111827;`);
 
     // Clone the main group without transforms
     const gOut=gNode.cloneNode(true) as SVGGElement;
-    gOut.setAttribute("transform","translate(0,0) scale(1)");
+    gOut.removeAttribute("transform");
     stripSelectionStylesFromGroup(gOut);
+    if(shouldStretchGeometry){
+      stretchExportGeometryWithoutText(gOut, stretchedScaleX, stretchedScaleY, stretchedDx, stretchedDy);
+      const tmpStretched=document.createElementNS("http://www.w3.org/2000/svg","svg");
+      tmpStretched.setAttribute("xmlns","http://www.w3.org/2000/svg");
+      tmpStretched.appendChild(gOut);
+      document.body.appendChild(tmpStretched);
+      const stretchedBBox = gOut.getBBox();
+      document.body.removeChild(tmpStretched);
+      const targetContentWidth = Math.max(1, viewBox[2] - pad * 2);
+      const targetContentHeight = Math.max(1, viewBox[3] - pad * 2);
+      const fitDx = computeFitTranslation(stretchedBBox.x, stretchedBBox.width, viewBox[0] + pad, targetContentWidth);
+      const fitDy = computeFitTranslation(stretchedBBox.y, stretchedBBox.height, viewBox[1] + pad, targetContentHeight);
+      if(Math.abs(fitDx) > 1e-6 || Math.abs(fitDy) > 1e-6){
+        gOut.setAttribute("transform", `translate(${formatSvgNumber(fitDx)},${formatSvgNumber(fitDy)})`);
+      }
+    }
     out.appendChild(gOut);
 
     // Vector scale bar overlay
     if(layout==='phylogram' && Number.isFinite(totalLength) && totalLength>0){
-      const pxPerUnit = (xScaleWidth / Math.max(1e-9,totalLength));
-    const scale = computeScaleBar(pxPerUnit, 1, 220);
+      const pxPerUnit = (xScaleWidth * stretchedScaleX / Math.max(1e-9,totalLength));
+      const scale = computeScaleBar(pxPerUnit, 1, 220);
       if(scale){
         const sbG = document.createElementNS("http://www.w3.org/2000/svg","g");
-        const sbX = bbox.x - pad + 16, sbY = bbox.y - pad + 18;
+        const [viewX, viewY, viewWidth, viewHeight] = viewBox;
+        const margin = 16;
+        const blockHeight = scaleBarLabelSize + 10;
+        const sbX = exportScaleBarCorner.endsWith("right")
+          ? viewX + viewWidth - margin - scale.px
+          : viewX + margin;
+        const blockTop = exportScaleBarCorner.startsWith("bottom")
+          ? viewY + viewHeight - margin - blockHeight
+          : viewY + margin;
+        const sbY = scaleBarPlacement.vertical === "top"
+          ? blockTop + scaleBarLabelSize + 6
+          : blockTop;
         const line = document.createElementNS("http://www.w3.org/2000/svg","rect");
         line.setAttribute("x", sbX.toString()); line.setAttribute("y", sbY.toString());
         line.setAttribute("width", scale.px.toString()); line.setAttribute("height","2");
         line.setAttribute("fill","#111827");
         const txt = document.createElementNS("http://www.w3.org/2000/svg","text");
-        txt.setAttribute("x", (sbX + scale.px + 8).toString());
-        txt.setAttribute("y", (sbY+4).toString());
-        txt.setAttribute("font-size","10"); txt.setAttribute("fill","#111827"); txt.setAttribute("font-family", fontStack);
+        const labelX = scaleBarPlacement.horizontal === "start"
+          ? sbX
+          : scaleBarPlacement.horizontal === "center"
+            ? sbX + scale.px / 2
+            : sbX + scale.px;
+        const labelY = scaleBarPlacement.vertical === "top"
+          ? blockTop + scaleBarLabelSize
+          : blockTop + scaleBarLabelSize + 8;
+        txt.setAttribute("x", labelX.toString());
+        txt.setAttribute("y", labelY.toString());
+        txt.setAttribute("text-anchor", scaleBarPlacement.textAnchor);
+        txt.setAttribute("font-size", String(scaleBarLabelSize)); txt.setAttribute("fill","#111827"); txt.setAttribute("font-family", fontStack);
         const label = formatScaleUnits(scale.units);
         txt.textContent = label || "";
         sbG.appendChild(line); sbG.appendChild(txt); out.appendChild(sbG);
@@ -2162,8 +2441,13 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     }
 
     const src=new XMLSerializer().serializeToString(out);
-    return new Blob([src], {type:"image/svg+xml;charset=utf-8"});
-  }
+    return {
+      blob: new Blob([src], {type:"image/svg+xml;charset=utf-8"}),
+      width: exportDimensions.width,
+      height: exportDimensions.height,
+      viewBox
+    };
+  },[scaleBarLabelSize, resolveExportDimensions, exportKeepAspect, nodes, layout, totalLength, xScaleWidth, scaleBarPlacement, exportScaleBarCorner]);
 
   // ---------- Downloads ----------
   function downloadNewick(){
@@ -2181,13 +2465,12 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     a.download='leaves.txt';
     a.click();
   }
-  async function downloadSVG(){ const blob=buildStandaloneSVGBlobWithScaleBar(); if(!blob) return; const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tree.svg'; a.click(); }
+  async function downloadSVG(){ const result=buildStandaloneSVGBlobWithScaleBar(); if(!result) return; const a=document.createElement('a'); a.href=URL.createObjectURL(result.blob); a.download='tree.svg'; a.click(); }
   async function renderPNGCanvas(){
-    const svgBlob=buildStandaloneSVGBlobWithScaleBar(); if(!svgBlob) return;
-    const src=await svgBlob.text(); const { Canvg } = await import('canvg');
-    // Derive canvas size from viewBox
-    const m=src.match(/viewBox="([^"]+)"/); let w=1200,h=800;
-    if(m){ const [,vb]=m; const [, , vbw, vbh]=vb.split(/\s+/).map(parseFloat); w=Math.ceil(vbw); h=Math.ceil(vbh); }
+    const svgResult=buildStandaloneSVGBlobWithScaleBar(); if(!svgResult) return;
+    const src=await svgResult.blob.text(); const { Canvg } = await import('canvg');
+    const w=svgResult.width;
+    const h=svgResult.height;
     const scale = Math.max(1, pngScale); // high-resolution PNG scaling factor
     const canvas=document.createElement('canvas'); canvas.width=w*scale; canvas.height=h*scale;
     const ctx=canvas.getContext('2d');
@@ -2203,18 +2486,17 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
   }
   async function downloadPDF(){
     // Prefer vector output via svg2pdf.js; fall back to raster if unavailable
-    const svgBlob=buildStandaloneSVGBlobWithScaleBar(); if(!svgBlob) return;
-    const src=await svgBlob.text();
+    const svgResult=buildStandaloneSVGBlobWithScaleBar(); if(!svgResult) return;
+    const src=await svgResult.blob.text();
     const { jsPDF } = await import('jspdf');
     const PDF_FONT = 'helvetica';
-    const m=src.match(/viewBox="([^"]+)"/);
-    const vbParts=m? m[1].split(/\s+/).map(parseFloat):[0,0,1000,800];
+    const vbParts=svgResult.viewBox;
     const vbMinX=Number.isFinite(vbParts[0])?vbParts[0]:0;
     const vbMinY=Number.isFinite(vbParts[1])?vbParts[1]:0;
     const vbwRaw=Number.isFinite(vbParts[2])?vbParts[2]:1000;
     const vbhRaw=Number.isFinite(vbParts[3])?vbParts[3]:800;
-    const vbw=Math.max(1, Math.ceil(vbwRaw));
-    const vbh=Math.max(1, Math.ceil(vbhRaw));
+    const vbw=svgResult.width;
+    const vbh=svgResult.height;
     try{
       const mod = await import('svg2pdf.js');
       const svg2pdf = (typeof mod === 'function' ? mod : mod.svg2pdf) || mod.default;
@@ -2254,8 +2536,64 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
     pdf.addImage(canvas.toDataURL('image/png'),'PNG',0,0,vbw,vbh);
     pdf.save('tree.pdf');
   }
+  useEffect(()=>{
+    if(activeTab !== "export"){
+      setExportPreview(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const frame = requestAnimationFrame(()=>{
+      const result = buildStandaloneSVGBlobWithScaleBar();
+      if(!result){
+        if(!cancelled) setExportPreview(null);
+        return;
+      }
+      objectUrl = URL.createObjectURL(result.blob);
+      if(cancelled){
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      setExportPreview({ url: objectUrl, width: result.width, height: result.height });
+    });
+    return ()=>{
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      if(objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  },[
+    activeTab,
+    buildStandaloneSVGBlobWithScaleBar,
+    tree,
+    nodes,
+    links,
+    edgeWidth,
+    leafLabelSize,
+    leafLabelOffsetX,
+    leafLabelOffsetY,
+    nodeLabelSize,
+    branchLabelSize,
+    branchLengthPrecisionSafe,
+    supportLabelSize,
+    branchLenOffsetX,
+    branchLenOffsetY,
+    bootstrapOffsetX,
+    bootstrapOffsetY,
+    nodeLabelOffsetX,
+    nodeLabelOffsetY,
+    showNodeLabels,
+    showBranchLen,
+    showBootstrap,
+    showNodeDotsEffective,
+    leafNodeDotSize,
+    internalNodeDotSize,
+    italic,
+    selection,
+    multiSelection,
+    activeSearchNodeId
+  ]);
 
-  const tabs = useMemo<{ id: typeof activeTab; label: string }[]>(()=>[
+    const tabs = useMemo<{ id: typeof activeTab; label: string }[]>(()=>[
     { id: "data", label: t("dataTab","Data") },
     { id: "selection", label: t("selectionTab","Selection") },
     { id: "rendering", label: t("renderingTab","Rendering") },
@@ -2741,6 +3079,38 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 </div>
               </div>
             </div>
+            {layout === "phylogram" && (
+              <div className="pt-3 border-t border-slate-200 space-y-3">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("scaleBar","Scale bar")}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-slate-600">{t("scaleBarTextSize","Scale bar text size")}</label>
+                  <input
+                    type="number"
+                    className={`${INPUT_CLASSES} w-24`}
+                    value={scaleBarLabelSize}
+                    min={6}
+                    max={72}
+                    step={1}
+                    onChange={(e)=>{
+                      const next=parseFloat(e.target.value);
+                      setScaleBarLabelSize(Number.isFinite(next)?Math.max(6, Math.min(72, next)):11);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-600">{t("scaleBarLabelPosition","Scale bar label position")}</label>
+                  <select
+                    className={`${INPUT_CLASSES} w-full`}
+                    value={scaleBarLabelPosition}
+                    onChange={(e)=>setScaleBarLabelPosition(e.target.value as ScaleBarLabelPosition)}
+                  >
+                    {SCALE_BAR_LABEL_POSITIONS.map(position=>(
+                      <option key={position} value={position}>{scaleBarPositionLabel(position)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
         );
       case "export":
@@ -2777,6 +3147,101 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   <input type="checkbox" checked={italic} onChange={(e)=>setItalic(e.target.checked)} />
                   <span className="font-medium">{t("italicTips","Italic tip labels")}</span>
                 </label>
+                <div className="rounded-2xl border border-slate-200 bg-white/80 p-3 space-y-3 text-sm text-slate-600">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("outputSize","Output size")}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        checked={exportSizeMode==="auto"}
+                        onChange={()=>setExportSizeMode("auto")}
+                      />
+                      <span>{t("autoSize","Auto size")}</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        checked={exportSizeMode==="custom"}
+                        onChange={()=>setExportSizeMode("custom")}
+                      />
+                      <span>{t("customSize","Custom size")}</span>
+                    </label>
+                  </div>
+                  {exportSizeMode==="custom" && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("widthPx","Width (px)")}</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-full`}
+                            value={exportWidthInput}
+                            min={MIN_EXPORT_SIZE}
+                            max={MAX_EXPORT_SIZE}
+                            step={10}
+                            onChange={(e)=>handleExportWidthInputChange(e.currentTarget.value)}
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("heightPx","Height (px)")}</span>
+                          <input
+                            type="number"
+                            className={`${INPUT_CLASSES} w-full`}
+                            value={exportHeightInput}
+                            min={MIN_EXPORT_SIZE}
+                            max={MAX_EXPORT_SIZE}
+                            step={10}
+                            onChange={(e)=>handleExportHeightInputChange(e.currentTarget.value)}
+                          />
+                        </label>
+                      </div>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={exportKeepAspect}
+                          onChange={(e)=>setExportKeepAspect(e.target.checked)}
+                        />
+                        <span>{t("keepAspectRatio","Keep aspect ratio")}</span>
+                      </label>
+                    </div>
+                  )}
+                  {layout === "phylogram" && (
+                    <div className="space-y-1">
+                      <label className="text-slate-600">{t("scaleBarExportCorner","Scale bar corner")}</label>
+                      <select
+                        className={`${INPUT_CLASSES} w-full`}
+                        value={exportScaleBarCorner}
+                        onChange={(e)=>setExportScaleBarCorner(e.target.value as ScaleBarCorner)}
+                      >
+                        {SCALE_BAR_CORNERS.map(corner=>(
+                          <option key={corner} value={corner}>{scaleBarCornerLabel(corner)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("outputPreview","Output preview")}</span>
+                      <span className="text-xs text-slate-500">
+                        {t("outputSize","Output size")}: {exportPreviewSize.width} x {exportPreviewSize.height}px
+                      </span>
+                    </div>
+                    <div className="flex min-h-[180px] max-h-[280px] items-center justify-center overflow-auto rounded-lg border border-dashed border-slate-300 bg-slate-100 px-3 py-3">
+                      {exportPreview ? (
+                        <img
+                          src={exportPreview.url}
+                          alt=""
+                          className="block max-h-[240px] max-w-full rounded-md border border-slate-300 bg-white object-contain shadow-sm"
+                        />
+                      ) : (
+                        <div
+                          className="rounded-md border border-slate-300 bg-white shadow-sm"
+                          style={{ width: exportPreviewDimensions.previewWidth, height: exportPreviewDimensions.previewHeight }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2 items-center">
                     <button className={BUTTON_CLASSES} onClick={downloadPNG}>{t("png","PNG")}</button>
@@ -2927,7 +3392,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
 
       <div className={layoutContainerClass} ref={layoutContainerRef}>
         <div ref={leftPaneRef} className={canvasOnlyMode ? "hidden" : "relative flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"} style={leftPaneStyle}>
-          <div className="relative rounded-xl bg-white/95 shadow-xl overflow-hidden">
+          <div className="relative flex h-full min-h-0 flex-col rounded-xl bg-white/95 shadow-xl overflow-hidden">
             <div className="grid grid-cols-2 sm:grid-cols-4 text-center bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
               {tabs.map(tab=>(
                 <button
@@ -2944,7 +3409,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                 </button>
               ))}
             </div>
-            <div className="p-4 space-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
               {renderTabContent()}
             </div>
           </div>
@@ -3457,7 +3922,7 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   <span className="text-sm font-medium text-slate-700">
                     {selection?.type==='node' ? "Node color" : "Edge color"}
                   </span>
-                  <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} />
+                  <ColorSelector selectedColor={activeSelectionColor} onSelect={actionColorSelected} compact />
                 </div>
                 {selection?.type==='node' && (
                   <div className="col-span-2 space-y-1">
@@ -3507,9 +3972,40 @@ function stripSelectionStylesFromGroup(group: SVGGElement){
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Name</span>
                   <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ actionRenameTip(e.currentTarget.value); } }} />
                 </div>
+                {selectedLeaf && (
+                  <div className="col-span-2 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("leafLabelSize","Leaf label size")}</span>
+                      <label className="flex items-center gap-1 text-xs text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={tipLabelBold}
+                          onChange={(e)=>{
+                            const next=e.target.checked;
+                            setTipLabelBold(next);
+                            actionSetTipLabelBold(next);
+                          }}
+                        />
+                        <span>{t("bold","Bold")}</span>
+                      </label>
+                    </div>
+                    <input
+                      type="number"
+                      className={`${INPUT_CLASSES} w-full`}
+                      min={6}
+                      step={1}
+                      placeholder="Default"
+                      value={tipLabelSizeInput}
+                      onChange={(e)=>{
+                        setTipLabelSizeInput(e.currentTarget.value);
+                        commitTipLabelSizeInput(e.currentTarget.value);
+                      }}
+                    />
+                  </div>
+                )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       </div>
 
