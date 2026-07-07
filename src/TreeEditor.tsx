@@ -83,13 +83,11 @@ const DEFAULT_EXPORT_WIDTH = 1600;
 const DEFAULT_EXPORT_HEIGHT = 1000;
 const MIN_EXPORT_SIZE = 32;
 const MAX_EXPORT_SIZE = 50000;
+const MIN_HORIZONTAL_SCALE_WIDTH = 50;
+const MAX_HORIZONTAL_SCALE_WIDTH = 100000;
 const SCALE_BAR_LABEL_POSITIONS: ScaleBarLabelPosition[] = [
-  "top-start",
   "top-center",
-  "top-end",
-  "bottom-start",
-  "bottom-center",
-  "bottom-end"
+  "bottom-center"
 ];
 const SCALE_BAR_CORNERS: ScaleBarCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
 const nodeSelectionKey = (id: number) => `node-${id}`;
@@ -536,6 +534,29 @@ function containsTipId(node: TreeNode, tipId: number): boolean {
   });
   return ok;
 }
+function cloneNodeDataWithoutTopology(node: TreeNode): TreeNode {
+  const copy: TreeNode = {};
+  Object.entries(node).forEach(([key, value]) => {
+    if (
+      key === "children" ||
+      key === "length" ||
+      key === "__edgeColor" ||
+      key === "__edgeWidth" ||
+      key === "__collapsedTipCount" ||
+      key === "__isCollapsedPlaceholder"
+    ) {
+      return;
+    }
+    copy[key] = value;
+  });
+  return copy;
+}
+function copyEdgeStyle(target: TreeNode, source: TreeNode) {
+  if (typeof source.__edgeColor === "string") target.__edgeColor = source.__edgeColor;
+  else delete target.__edgeColor;
+  if (typeof source.__edgeWidth === "number" && Number.isFinite(source.__edgeWidth)) target.__edgeWidth = source.__edgeWidth;
+  else delete target.__edgeWidth;
+}
 
 /** ---------- reroot / edit ---------- */
 function rerootAt(root: TreeNode, newRootData: TreeNode | null): TreeNode {
@@ -570,8 +591,17 @@ function rerootAt(root: TreeNode, newRootData: TreeNode | null): TreeNode {
       adj.get(c)?.push(p);
     }
   }
+  function originalEdgeStyleSource(a: TreeNode, b: TreeNode): TreeNode | null {
+    if (parentMap.get(b) === a) return b;
+    if (parentMap.get(a) === b) return a;
+    return null;
+  }
   function build(curr: TreeNode, prev: TreeNode | null): TreeNode {
-    const node: TreeNode = { name: curr.name, length: undefined };
+    const node = cloneNodeDataWithoutTopology(curr);
+    if (prev) {
+      const styleSource = originalEdgeStyleSource(prev, curr);
+      if (styleSource) copyEdgeStyle(node, styleSource);
+    }
     const children: TreeNode[] = [];
     const neighbors = adj.get(curr) ?? [];
     for (const nb of neighbors) {
@@ -586,6 +616,8 @@ function rerootAt(root: TreeNode, newRootData: TreeNode | null): TreeNode {
   }
   const r = build(newRoot, null);
   delete r.length;
+  delete r.__edgeColor;
+  delete r.__edgeWidth;
   return r;
 }
 function splitEdge(parentNode: TreeNode, childNode: TreeNode, t: number): TreeNode {
@@ -593,6 +625,7 @@ function splitEdge(parentNode: TreeNode, childNode: TreeNode, t: number): TreeNo
   const eps = Math.max(1e-9, L * 1e-6);
   const tt = Math.min(Math.max(t, eps), Math.max(eps, L - eps));
   const newInternal: TreeNode = { name: "", children: [childNode], length: tt };
+  copyEdgeStyle(newInternal, childNode);
   const idx = (parentNode.children || []).findIndex((c) => c === childNode);
   if (idx >= 0) parentNode.children?.splice(idx, 1, newInternal);
   else {
@@ -687,8 +720,8 @@ export default function TreeEditor(){
   const [search,setSearch]=useState("");
   const [searchFocusIndex,setSearchFocusIndex]=useState(0);
   const [zoomK,setZoomK]=useState(1);
-  const [scaleBarLabelSize,setScaleBarLabelSize]=useState(11);
-  const [scaleBarLabelPosition,setScaleBarLabelPosition]=useState<ScaleBarLabelPosition>("bottom-start");
+  const [scaleBarLabelSize,setScaleBarLabelSize]=useState(15);
+  const [scaleBarLabelPosition,setScaleBarLabelPosition]=useState<ScaleBarLabelPosition>("bottom-center");
   const [exportScaleBarCorner,setExportScaleBarCorner]=useState<ScaleBarCorner>("top-left");
   const [exportSizeMode,setExportSizeMode]=useState<ExportSizeMode>("auto");
   const [exportWidthInput,setExportWidthInput]=useState(String(DEFAULT_EXPORT_WIDTH));
@@ -724,10 +757,11 @@ export default function TreeEditor(){
   const [currentNewickEditable,setCurrentNewickEditable]=useState(currentNewick);
   useEffect(()=>{ setCurrentNewickEditable(currentNewick); },[currentNewick]);
   const scaleBarPlacement = useMemo(()=>{
-    const [vertical, horizontal] = scaleBarLabelPosition.split("-") as ["top" | "bottom", "start" | "center" | "end"];
-    const textAnchor = horizontal === "center" ? "middle" : horizontal;
-    const htmlAlignClass = horizontal === "start" ? "items-start" : horizontal === "center" ? "items-center" : "items-end";
-    const htmlTextAlignClass = horizontal === "start" ? "text-left" : horizontal === "center" ? "text-center" : "text-right";
+    const [vertical] = scaleBarLabelPosition.split("-") as ["top" | "bottom", "start" | "center" | "end"];
+    const horizontal = "center";
+    const textAnchor = "middle";
+    const htmlAlignClass = "items-center";
+    const htmlTextAlignClass = "text-center";
     return { vertical, horizontal, textAnchor, htmlAlignClass, htmlTextAlignClass };
   },[scaleBarLabelPosition]);
   const scaleBarPositionLabel = useCallback((position: ScaleBarLabelPosition)=>{
@@ -1012,15 +1046,20 @@ export default function TreeEditor(){
   // Horizontal scale width adjustable via UI
   const [xScaleWidth, setXScaleWidth] = useState(()=>1200);
   const [autoWidthHint, setAutoWidthHint] = useState(()=>1200);
-  const horizontalScaleMax = useMemo(()=>{
-    const base = Math.max(200, autoWidthHint || 200);
-    const limit = Math.round(base * 10);
-    return Math.max(400, Math.min(100000, limit));
-  },[autoWidthHint]);
+  const horizontalScaleSliderMin = useMemo(()=>{
+    const base = Math.max(MIN_HORIZONTAL_SCALE_WIDTH, autoWidthHint || MIN_HORIZONTAL_SCALE_WIDTH);
+    const relativeMin = Math.floor((base * 0.1) / 50) * 50;
+    return Math.max(MIN_HORIZONTAL_SCALE_WIDTH, Math.min(xScaleWidth, relativeMin || MIN_HORIZONTAL_SCALE_WIDTH));
+  },[autoWidthHint, xScaleWidth]);
+  const horizontalScaleSliderMax = useMemo(()=>{
+    const base = Math.max(MIN_HORIZONTAL_SCALE_WIDTH, autoWidthHint || MIN_HORIZONTAL_SCALE_WIDTH);
+    const relativeMax = Math.ceil((base * 3) / 50) * 50;
+    return Math.max(400, Math.min(MAX_HORIZONTAL_SCALE_WIDTH, Math.max(xScaleWidth, relativeMax)));
+  },[autoWidthHint, xScaleWidth]);
   const clampHorizontalWidth = useCallback((value: number)=>{
     const numeric = Number.isFinite(value) ? value : autoWidthHint;
-    return Math.max(200, Math.min(horizontalScaleMax, numeric || 200));
-  },[horizontalScaleMax, autoWidthHint]);
+    return Math.max(MIN_HORIZONTAL_SCALE_WIDTH, Math.min(MAX_HORIZONTAL_SCALE_WIDTH, numeric || MIN_HORIZONTAL_SCALE_WIDTH));
+  },[autoWidthHint]);
   // PNG export scale multiplier for crisp output
   const [pngScale, setPngScale] = useState(3); // crisp 3x default
 
@@ -2422,11 +2461,7 @@ export default function TreeEditor(){
         line.setAttribute("width", scale.px.toString()); line.setAttribute("height","2");
         line.setAttribute("fill","#111827");
         const txt = document.createElementNS("http://www.w3.org/2000/svg","text");
-        const labelX = scaleBarPlacement.horizontal === "start"
-          ? sbX
-          : scaleBarPlacement.horizontal === "center"
-            ? sbX + scale.px / 2
-            : sbX + scale.px;
+        const labelX = sbX + scale.px / 2;
         const labelY = scaleBarPlacement.vertical === "top"
           ? blockTop + scaleBarLabelSize
           : blockTop + scaleBarLabelSize + 8;
@@ -2888,8 +2923,8 @@ export default function TreeEditor(){
                 type="number"
                 className={`${INPUT_CLASSES} w-28`}
                 value={xScaleWidth}
-                min={200}
-                max={horizontalScaleMax}
+                min={MIN_HORIZONTAL_SCALE_WIDTH}
+                max={MAX_HORIZONTAL_SCALE_WIDTH}
                 step={50}
                 onChange={(e)=>{
                   userSetWidthRef.current = true;
@@ -3093,7 +3128,7 @@ export default function TreeEditor(){
                     step={1}
                     onChange={(e)=>{
                       const next=parseFloat(e.target.value);
-                      setScaleBarLabelSize(Number.isFinite(next)?Math.max(6, Math.min(72, next)):11);
+                      setScaleBarLabelSize(Number.isFinite(next)?Math.max(6, Math.min(72, next)):15);
                     }}
                   />
                 </div>
@@ -3206,17 +3241,35 @@ export default function TreeEditor(){
                     </div>
                   )}
                   {layout === "phylogram" && (
-                    <div className="space-y-1">
-                      <label className="text-slate-600">{t("scaleBarExportCorner","Scale bar corner")}</label>
-                      <select
-                        className={`${INPUT_CLASSES} w-full`}
-                        value={exportScaleBarCorner}
-                        onChange={(e)=>setExportScaleBarCorner(e.target.value as ScaleBarCorner)}
-                      >
-                        {SCALE_BAR_CORNERS.map(corner=>(
-                          <option key={corner} value={corner}>{scaleBarCornerLabel(corner)}</option>
-                        ))}
-                      </select>
+                    <div className="space-y-3 border-t border-slate-200 pt-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("scaleBar","Scale bar")}</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <label className="text-slate-600">{t("scaleBarTextSize","Scale bar text size")}</label>
+                        <input
+                          type="number"
+                          className={`${INPUT_CLASSES} w-24`}
+                          value={scaleBarLabelSize}
+                          min={6}
+                          max={72}
+                          step={1}
+                          onChange={(e)=>{
+                            const next=parseFloat(e.target.value);
+                            setScaleBarLabelSize(Number.isFinite(next)?Math.max(6, Math.min(72, next)):15);
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-slate-600">{t("scaleBarExportCorner","Scale bar corner")}</label>
+                        <select
+                          className={`${INPUT_CLASSES} w-full`}
+                          value={exportScaleBarCorner}
+                          onChange={(e)=>setExportScaleBarCorner(e.target.value as ScaleBarCorner)}
+                        >
+                          {SCALE_BAR_CORNERS.map(corner=>(
+                            <option key={corner} value={corner}>{scaleBarCornerLabel(corner)}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   )}
                   <div className="space-y-2 pt-2 border-t border-slate-200">
@@ -3543,12 +3596,12 @@ export default function TreeEditor(){
                   </span>
                   <input
                     type="range"
-                    min={200}
-                    max={horizontalScaleMax}
+                    min={horizontalScaleSliderMin}
+                    max={horizontalScaleSliderMax}
                     step={50}
                     value={xScaleWidth}
                     onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSlider(parseFloat(e.target.value)); }}
-                    className="w-28 accent-[#286699]"
+                    className="w-40 accent-[#286699] sm:w-56"
                   />
                   <span className="text-slate-700 w-12 text-right text-sm">{Math.round(xScaleWidth)}</span>
                 </label>
