@@ -103,6 +103,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     uploadNewick: "Upload NEWICK",
     loadExample: "Load example",
     uploadHelper: "Uploaded text appears below.",
+    initialLoadFailed: "Could not load the initial tree or species colors:",
     applyNewick: "Apply NEWICK",
     statsTitle: "Current tree stats",
     tips: "Leaves",
@@ -198,6 +199,7 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     uploadNewick: "NEWICKをアップロード",
     loadExample: "例を読み込む",
     uploadHelper: "読み込んだテキストは下に表示されます。",
+    initialLoadFailed: "初期系統樹または種の色対応表を読み込めませんでした：",
     applyNewick: "NEWICKを適用",
     statsTitle: "現在の系統樹情報",
     tips: "葉",
@@ -665,9 +667,45 @@ function collapseUnaryInPlace(node: TreeNode): TreeNode {
 }
 
 /** ---------- Component ---------- */
+function applySpeciesColors(tree: TreeNode, text: string) {
+  const colors = new Map<string, string>();
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = /^species_color:\s+(\S+)\s+(?:0x|#)([\da-f]{6})\s*(?:#.*)?$/i.exec(trimmed);
+    if (!match) throw new Error(`Invalid species color entry: ${trimmed}`);
+    colors.set(match[1], `#${match[2]}`);
+  }
+  if (!colors.size) throw new Error("No species_color entries found");
+  const pending = [tree];
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node.children?.length) {
+      pending.push(...node.children);
+    } else {
+      const species = node.name?.trim().split("_")[1];
+      const color = species ? colors.get(species) : undefined;
+      if (color) node.__color = color;
+    }
+  }
+}
+
+async function fetchInitialText(path: string, signal: AbortSignal) {
+  const url = new URL(path, window.location.href);
+  if (url.origin !== window.location.origin || !["http:", "https:"].includes(url.protocol)) {
+    throw new Error("The file must be hosted on the same server as PhyloWeaver");
+  }
+  const response = await fetch(url, { signal, mode: "same-origin", redirect: "error" });
+  if (!response.ok) throw new Error(`${url.pathname}: HTTP ${response.status}`);
+  const text = await response.text();
+  if (!text.trim() || /^\s*</.test(text)) throw new Error(`${url.pathname}: empty file or HTML response`);
+  return text;
+}
+
 export default function TreeEditor(){
   const EXAMPLE="((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4)88/0.92:0.5);";
   const [rawText,setRawText]=useState(EXAMPLE);
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
   const newickWarning = useMemo(()=>{
     if(!rawText.trim()) return null;
     let open=0, close=0;
@@ -679,6 +717,7 @@ export default function TreeEditor(){
     return `Parentheses mismatch in NEWICK string.\nFound ${open} "(" and ${close} ")".`;
   },[rawText]);
   const [tree,setTree]=useState<TreeNode>(()=>ensureIds(parseNewick(EXAMPLE)));
+  const initialTreeRef = useRef(tree);
   const [lang,setLang]=useState<Locale>("en");
   const t = useCallback((key: string, fallback: string)=> UI_TEXT[lang]?.[key] ?? fallback,[lang]);
   const [historyStack, setHistoryStack] = useState<TreeNode[]>([]);
@@ -1206,22 +1245,38 @@ export default function TreeEditor(){
 
   useEffect(()=>{
     if(newickQueryAppliedRef.current) return;
-    newickQueryAppliedRef.current = true;
     if(typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const fromQuery = params.get("newick");
-    if(!fromQuery) return;
-    const decoded = fromQuery.replace(/\+/g, " ");
-    setRawText(decoded);
-    try{
-      const parsed = ensureIds(parseNewick(decoded));
-      commitTree(parsed);
-      setActiveTab("data");
-    }catch(err){
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn("Failed to parse NEWICK from query parameter", err);
-      alert("Failed to parse NEWICK from URL parameter: " + message);
+    const newickUrl = params.get("newickUrl");
+    const colorsUrl = params.get("colorsUrl");
+    if(!fromQuery && !newickUrl) return;
+    const controller = new AbortController();
+    const startingTree = initialTreeRef.current;
+    async function load() {
+      try {
+        // URLSearchParams already decodes the inline NEWICK, including literal '+' encoded as %2B.
+        const [text, colors] = await Promise.all([
+          newickUrl ? fetchInitialText(newickUrl, controller.signal) : Promise.resolve(fromQuery!),
+          colorsUrl ? fetchInitialText(colorsUrl, controller.signal) : Promise.resolve(null),
+        ]);
+        if (controller.signal.aborted) return;
+        newickQueryAppliedRef.current = true;
+        // Do not replace a tree the user edited while files were being fetched.
+        if (latestTreeRef.current !== startingTree) return;
+        const parsed = ensureIds(parseNewick(text));
+        if (colors !== null) applySpeciesColors(parsed, colors);
+        setRawText(text);
+        commitTree(parsed);
+        setActiveTab("data");
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        newickQueryAppliedRef.current = true;
+        setInitialLoadError(err instanceof Error ? err.message : String(err));
+      }
     }
+    void load();
+    return () => controller.abort();
   },[commitTree, setActiveTab, setRawText]);
 
 
@@ -2647,6 +2702,7 @@ export default function TreeEditor(){
               <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>{t("loadExample","Load example")}</button>
             </div>
             <p className="text-sm text-slate-600">{t("uploadHelper","Uploaded text appears below.")}</p>
+            {initialLoadError && <p role="alert" className="text-sm text-red-700">{t("initialLoadFailed", "Could not load the initial tree or species colors:")} {initialLoadError}</p>}
             <div className="space-y-1">
               <textarea
                 className={`${INPUT_CLASSES} w-full h-20 resize-y ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
