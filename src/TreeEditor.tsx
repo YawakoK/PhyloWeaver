@@ -21,6 +21,14 @@ type ScaleBarLabelPosition =
   | "bottom-center"
   | "bottom-end";
 type ScaleBarCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+type SupportLabelPosition = "branch" | "node";
+type SupportInterpretation = "branch" | "node";
+const NODE_LABEL_OFFSET = { x: -4, y: 14 };
+const SUPPORT_LABEL_OFFSETS: Record<SupportLabelPosition, { x: number; y: number }> = {
+  branch: { x: 0, y: -18 },
+  node: { x: -4, y: -6 },
+};
+const DEFAULT_SUPPORT_LABEL_POSITION: SupportLabelPosition = "node";
 
 type TreeNode = {
   __id?: number;
@@ -33,8 +41,11 @@ type TreeNode = {
   __cladoOffset?: number;
   __collapsed?: boolean;
   __collapsedTipCount?: number;
+  __collapsedLabel?: string;
   __isCollapsedPlaceholder?: boolean;
   name?: string;
+  // Branch support by default; the editor can instead keep values on their nodes.
+  support?: string;
   length?: number;
   children?: TreeNode[];
   [key: string]: unknown;
@@ -70,8 +81,8 @@ type LayoutSnapshot = {
 };
 
 // const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
-const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
-const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#c28606] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
+const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#b45309] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
+const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#b45309] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const PRIMARY_BLUE_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-white text-[#286699] border border-[#286699] text-base font-bold transition-all duration-200 hover:bg-[#286699]/10 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
@@ -84,6 +95,20 @@ const DEFAULT_EXPORT_HEIGHT = 1000;
 const MIN_EXPORT_SIZE = 32;
 const MAX_EXPORT_SIZE = 50000;
 const MIN_HORIZONTAL_SCALE_WIDTH = 50;
+// Widest comfortable span per tree level, as a multiple of the leaf label size.
+// Without it the auto width only ever tries to fill the pane, which leaves a
+// shallow tree with branches far longer than the text sitting on them.
+// Tightest row spacing the auto layout will settle on, whatever the tip count.
+const MIN_AUTO_VERTICAL_SPACING = 23;
+const HORIZONTAL_LEVEL_CEILING = 10;
+// ...and no more than this many times its own height. A shallow tree with many
+// tips needs the width even though it has few levels, so the two ceilings are
+// combined with max(): the width is only trimmed when both call it too wide.
+const HORIZONTAL_ASPECT_CEILING = 2.5;
+// The horizontal slider is a multiplier on the auto-fitted width, travelling on a
+// log track: auto sits dead centre and halving costs the same distance as doubling.
+const HORIZONTAL_SCALE_SLIDER_STEPS = 1000;
+const HORIZONTAL_SCALE_SLIDER_SPAN = 4;
 const MAX_HORIZONTAL_SCALE_WIDTH = 100000;
 const SCALE_BAR_LABEL_POSITIONS: ScaleBarLabelPosition[] = [
   "top-center",
@@ -95,10 +120,10 @@ const linkSelectionKey = (parentId: number, childId: number) => `link-${parentId
 type Locale = "en" | "jp";
 const UI_TEXT: Record<Locale, Record<string, string>> = {
   en: {
-    dataTab: "Data",
-    selectionTab: "Selection",
+    dataTab: "Tree",
+    selectionTab: "Edit",
     multiSelectHint: "Hold Shift and click to select multiple items",
-    renderingTab: "Rendering",
+    renderingTab: "Style",
     exportTab: "Export",
     uploadNewick: "Upload NEWICK",
     loadExample: "Load example",
@@ -118,10 +143,20 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     horizontalScale: "Horizontal scale",
     showSection: "Show",
     internalNodeLabelsSection: "Internal node labels",
+    supportPosition: "Position",
+    supportOnBranch: "Branch",
+    supportOnNode: "Node",
+    interpretSupportAsNode: "Interpret values as node-associated",
+    nodeSupportHint: "Rerooting keeps values on the original nodes. Support for changed clades is not recalculated.",
+    internalNameHint: "Shown when Internal node labels is on.",
+    collapsedNameHint: "The whole caption on the triangle, leaf count included. Empty restores the count.",
     branchLengthsSection: "Branch lengths",
     supportValues: "Support values",
+    showSupportValues: "Show support values",
     nodeDots: "Node dots",
     textSize: "Text size",
+    leafDotSize: "Leaf size",
+    internalDotSize: "Internal size",
     offset: "Offset",
     leafOffset: "Leaf offset",
     phylogram: "Phylogram",
@@ -153,8 +188,10 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     imageExports: "Image exports",
     italicTips: "Italic leaf labels",
     scaleLabel: "Scale (x)",
-    fitView: "Zoom reset",
-    resetView: "Reset view",
+    fitView: "Fit to screen",
+    fitViewHint: "Zoom and centre so the whole tree is visible. Spacing is left alone.",
+    resetView: "Reset layout",
+    resetViewHint: "Recompute branch width and row spacing for this tree, then fit it to the screen.",
     dragNodesOn: "Drag nodes: ON",
     dragNodesOff: "Drag nodes: OFF",
     canvasOnlyOn: "Fullscreen",
@@ -191,11 +228,11 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     bottomEnd: "Bottom right"
   },
   jp: {
-    dataTab: "データ",
-    selectionTab: "選択",
+    dataTab: "ツリー",
+    selectionTab: "編集",
     multiSelectHint: "Shiftを押しながらクリックで複数選択できます",
-    renderingTab: "描画",
-    exportTab: "エクスポート",
+    renderingTab: "表示",
+    exportTab: "出力",
     uploadNewick: "NEWICKをアップロード",
     loadExample: "例を読み込む",
     uploadHelper: "読み込んだテキストは下に表示されます。",
@@ -214,10 +251,20 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     horizontalScale: "横幅スケール",
     showSection: "表示",
     internalNodeLabelsSection: "内部ノードラベル",
+    supportPosition: "表示位置",
+    supportOnBranch: "枝",
+    supportOnNode: "ノード",
+    interpretSupportAsNode: "ノードに付随する値として解釈する",
+    nodeSupportHint: "根を付け替えても元のノードに値を保持します。変化したクレードの支持値を再計算するものではありません。",
+    internalNameHint: "「内部ノードラベル」をオンにすると表示されます。",
+    collapsedNameHint: "三角形の横に出る文字列そのものです。括弧内の葉の数も編集できます。空にすると既定に戻ります。",
     branchLengthsSection: "枝長",
     supportValues: "サポート値",
+    showSupportValues: "サポート値を表示",
     nodeDots: "ノード表示",
     textSize: "文字サイズ",
+    leafDotSize: "葉のサイズ",
+    internalDotSize: "内部ノードのサイズ",
     offset: "オフセット",
     leafOffset: "葉ラベル位置",
     phylogram: "フィログラム",
@@ -249,8 +296,10 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     imageExports: "画像出力",
     italicTips: "葉ラベルを斜体にする",
     scaleLabel: "倍率",
-    fitView: "ズームリセット",
-    resetView: "リセット",
+    fitView: "画面に合わせる",
+    fitViewHint: "ツリー全体が見えるようにズームと位置だけを調整します。間隔は変わりません。",
+    resetView: "レイアウトをリセット",
+    resetViewHint: "横幅スケールと上下間隔をこのツリーに合わせて再計算し、画面に合わせます。",
     dragNodesOn: "ノードドラッグ: ON",
     dragNodesOff: "ノードドラッグ: OFF",
     canvasOnlyOn: "全画面",
@@ -366,12 +415,20 @@ function ColorSelector({ selectedColor, onSelect, compact = false }: ColorSelect
   );
 }
 /** ---------- NEWICK ---------- */
+function parseSupportValue(label: string): string | null {
+  const value = label.trim();
+  const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+  return value && value.split("/").every(part => numeric.test(part.trim()) && Number.isFinite(Number(part)))
+    ? value
+    : null;
+}
+
 function parseNewick(newick: string): TreeNode {
   let i = 0;
   function eatWhitespace() {
     while (i < newick.length && /\s/.test(newick[i])) i++;
   }
-  function parseSubtree(): TreeNode {
+  function parseSubtree(isRoot = false): TreeNode {
     eatWhitespace();
     const node: TreeNode = {};
     if (newick[i] === "(") {
@@ -393,19 +450,42 @@ function parseNewick(newick: string): TreeNode {
     }
     eatWhitespace();
     let name = "";
-    while (i < newick.length && ![":", ",", ")", ";"].includes(newick[i])) name += newick[i++];
+    while (i < newick.length && ![":", ",", ")", ";", "["].includes(newick[i])) name += newick[i++];
     name = name.trim();
-    if (name) node.name = name;
+    let explicitNodeLabel = false;
+    function readComments() {
+      eatWhitespace();
+      while (newick[i] === "[") {
+        const end = newick.indexOf("]", i + 1);
+        if (end < 0) throw new Error("Unclosed NEWICK comment @ " + i);
+        const comment = newick.slice(i + 1, end).trim();
+        if (comment === "&nodeLabel") explicitNodeLabel = true;
+        const match = /^&support\s*=\s*(.+)$/.exec(comment);
+        if (match) {
+          const support = parseSupportValue(match[1]);
+          if (support !== null) node.support = support;
+        }
+        i = end + 1;
+        eatWhitespace();
+      }
+    }
+    readComments();
     if (newick[i] === ":") {
       i++;
       let len = "";
-      while (i < newick.length && ![",", ")", ";"].includes(newick[i])) len += newick[i++];
+      while (i < newick.length && ![",", ")", ";", "["].includes(newick[i])) len += newick[i++];
       node.length = parseFloat(len);
       if (Number.isNaN(node.length)) node.length = 0;
     }
+    readComments();
+    if (name) {
+      const support = !isRoot && node.children?.length && !explicitNodeLabel ? parseSupportValue(name) : null;
+      if (support !== null) node.support ??= support;
+      else node.name = name;
+    }
     return node;
   }
-  const tree = parseSubtree();
+  const tree = parseSubtree(true);
   eatWhitespace();
   if (newick[i] === ";") i++;
   return tree;
@@ -415,13 +495,32 @@ function toNewick(node: TreeNode, options?: { includeLengths?: boolean }): strin
   function rec(n: TreeNode): string {
     const name = n.name ? n.name.replace(/[\s\t\n\r]/g, "_") : "";
     const len = includeLengths && typeof n.length === "number" ? `:${+n.length.toFixed(6)}` : "";
-    if (n.children?.length) return `(${n.children.map(rec).join(",")})${name}${len}`;
-    return `${name || "Unnamed"}${len}`;
+    // Numeric internal labels remain the usual NEWICK representation of edge support.
+    // Comments preserve support when a node already has a name, or is a tip.
+    const supportComment = n.support !== undefined && (n === node || name || !n.children?.length) ? `[&support=${n.support}]` : "";
+    const nameComment = name && n !== node && n.children?.length && parseSupportValue(name) !== null ? "[&nodeLabel]" : "";
+    if (n.children?.length) return `(${n.children.map(rec).join(",")})${name || (n === node ? "" : n.support) || ""}${nameComment}${supportComment}${len}`;
+    return `${name || "Unnamed"}${supportComment}${len}`;
   }
   return rec(node) + ";";
 }
 
 /** ---------- utils ---------- */
+function collapsedPlaceholderLabel(name: unknown, count: number): string {
+  const trimmed = typeof name === "string" ? name.trim() : "";
+  return trimmed ? `${trimmed} (${count})` : `(${count})`;
+}
+// The whole caption is editable, parenthesised count included; without an override
+// it stays generated so the count keeps following the clade.
+function resolveCollapsedLabel(node: TreeNode, count: number): string {
+  return typeof node.__collapsedLabel === "string"
+    ? node.__collapsedLabel
+    : collapsedPlaceholderLabel(node.name, count);
+}
+function getSupportValue(node: TreeNode): string | null {
+  return node.support ?? null;
+}
+
 const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o)) as T;
 function collectTips(node: TreeNode, arr: TreeNode[] = []): TreeNode[] {
   if (!node.children?.length) arr.push(node);
@@ -536,12 +635,13 @@ function containsTipId(node: TreeNode, tipId: number): boolean {
   });
   return ok;
 }
-function cloneNodeDataWithoutTopology(node: TreeNode): TreeNode {
+function cloneNodeDataWithoutTopology(node: TreeNode, supportInterpretation: SupportInterpretation = "branch"): TreeNode {
   const copy: TreeNode = {};
   Object.entries(node).forEach(([key, value]) => {
     if (
       key === "children" ||
       key === "length" ||
+      (key === "support" && supportInterpretation === "branch") ||
       key === "__edgeColor" ||
       key === "__edgeWidth" ||
       key === "__collapsedTipCount" ||
@@ -553,7 +653,11 @@ function cloneNodeDataWithoutTopology(node: TreeNode): TreeNode {
   });
   return copy;
 }
-function copyEdgeStyle(target: TreeNode, source: TreeNode) {
+function copyEdgeAttributes(target: TreeNode, source: TreeNode, supportInterpretation: SupportInterpretation = "branch") {
+  if (supportInterpretation === "branch") {
+    if (source.support !== undefined) target.support = source.support;
+    else delete target.support;
+  }
   if (typeof source.__edgeColor === "string") target.__edgeColor = source.__edgeColor;
   else delete target.__edgeColor;
   if (typeof source.__edgeWidth === "number" && Number.isFinite(source.__edgeWidth)) target.__edgeWidth = source.__edgeWidth;
@@ -561,7 +665,7 @@ function copyEdgeStyle(target: TreeNode, source: TreeNode) {
 }
 
 /** ---------- reroot / edit ---------- */
-function rerootAt(root: TreeNode, newRootData: TreeNode | null): TreeNode {
+function rerootAt(root: TreeNode, newRootData: TreeNode | null, supportInterpretation: SupportInterpretation = "branch"): TreeNode {
   if (!root) return root;
   const nodes: TreeNode[] = [];
   (function collect(n: TreeNode) {
@@ -593,16 +697,16 @@ function rerootAt(root: TreeNode, newRootData: TreeNode | null): TreeNode {
       adj.get(c)?.push(p);
     }
   }
-  function originalEdgeStyleSource(a: TreeNode, b: TreeNode): TreeNode | null {
+  function originalEdgeSource(a: TreeNode, b: TreeNode): TreeNode | null {
     if (parentMap.get(b) === a) return b;
     if (parentMap.get(a) === b) return a;
     return null;
   }
   function build(curr: TreeNode, prev: TreeNode | null): TreeNode {
-    const node = cloneNodeDataWithoutTopology(curr);
+    const node = cloneNodeDataWithoutTopology(curr, supportInterpretation);
     if (prev) {
-      const styleSource = originalEdgeStyleSource(prev, curr);
-      if (styleSource) copyEdgeStyle(node, styleSource);
+      const edgeSource = originalEdgeSource(prev, curr);
+      if (edgeSource) copyEdgeAttributes(node, edgeSource, supportInterpretation);
     }
     const children: TreeNode[] = [];
     const neighbors = adj.get(curr) ?? [];
@@ -622,39 +726,58 @@ function rerootAt(root: TreeNode, newRootData: TreeNode | null): TreeNode {
   delete r.__edgeWidth;
   return r;
 }
-function splitEdge(parentNode: TreeNode, childNode: TreeNode, t: number): TreeNode {
+function splitEdge(parentNode: TreeNode, childNode: TreeNode, t: number, supportInterpretation: SupportInterpretation = "branch"): TreeNode {
   const L = Number.isFinite(childNode.length) ? (childNode.length as number) : 0;
-  const eps = Math.max(1e-9, L * 1e-6);
-  const tt = Math.min(Math.max(t, eps), Math.max(eps, L - eps));
+  const tt = Math.min(Math.max(t, Math.min(0, L)), Math.max(0, L));
   const newInternal: TreeNode = { name: "", children: [childNode], length: tt };
-  copyEdgeStyle(newInternal, childNode);
+  copyEdgeAttributes(newInternal, childNode, supportInterpretation);
   const idx = (parentNode.children || []).findIndex((c) => c === childNode);
   if (idx >= 0) parentNode.children?.splice(idx, 1, newInternal);
   else {
     parentNode.children ??= [];
     parentNode.children.push(newInternal);
   }
-  childNode.length = Math.max(0, L - tt);
+  childNode.length = L - tt;
   return newInternal;
 }
-function rerootOnEdge(treeRoot: TreeNode, parentId: number, childId: number, frac = 0.5): TreeNode {
+function rerootOnEdge(treeRoot: TreeNode, parentId: number, childId: number, frac = 0.5, supportInterpretation: SupportInterpretation = "branch"): TreeNode {
   const P = findById(treeRoot, parentId);
   const C = findById(treeRoot, childId);
-  if (!P || !C) return treeRoot;
+  if (!P || !C || !P.children?.includes(C)) return treeRoot;
+  const fraction = Math.max(0, Math.min(1, Number.isFinite(frac) ? frac : 0.5));
+  if (P === treeRoot && P.children?.length === 2) {
+    // The two root branches are halves of one edge. Reposition within the whole
+    // edge so repeating midpoint rooting never keeps halving just one side.
+    const sibling = P.children.find(child => child !== C)!;
+    const total = (Number.isFinite(C.length) ? C.length! : 0) + (Number.isFinite(sibling.length) ? sibling.length! : 0);
+    sibling.length = total * fraction;
+    C.length = total - sibling.length;
+    return treeRoot;
+  }
   const L = Number.isFinite(C.length) ? (C.length as number) : 0;
-  const newInternal = splitEdge(P, C, L * (Number.isFinite(frac) ? frac : 0.5));
-  const rebuilt = rerootAt(treeRoot, newInternal);
+  const newInternal = splitEdge(P, C, L * fraction, supportInterpretation);
+  const rebuilt = rerootAt(treeRoot, newInternal, supportInterpretation);
   ensureIds(rebuilt);
   return rebuilt;
 }
-function collapseUnaryInPlace(node: TreeNode): TreeNode {
+function collapseUnaryInPlace(node: TreeNode, supportInterpretation: SupportInterpretation = "branch"): TreeNode {
   if (!node.children?.length) return node;
-  node.children.forEach((c) => collapseUnaryInPlace(c));
+  node.children.forEach((c) => collapseUnaryInPlace(c, supportInterpretation));
   for (let i = 0; i < node.children.length; i++) {
     const ch = node.children[i];
-    if (ch?.children?.length === 1) {
+    if (ch?.children?.length === 1 && !ch.name) {
+      // Removing this node would discard or move its own value.
+      if (supportInterpretation === "node" && ch.support !== undefined) continue;
       const gc = ch.children[0];
+      // Keep distinct annotations instead of choosing one arbitrarily when
+      // collapsing the two sides of a previous binary root.
+      if (ch.support !== undefined && gc.support !== undefined) {
+        const first = ch.support.split("/").map(Number);
+        const second = gc.support.split("/").map(Number);
+        if (first.length !== second.length || first.some((value, index) => value !== second[index])) continue;
+      }
       if (Number.isFinite(ch.length)) gc.length = (Number.isFinite(gc.length) ? (gc.length as number) : 0) + (ch.length as number);
+      gc.support ??= ch.support;
       if (ch.__edgeColor && !gc.__edgeColor) gc.__edgeColor = ch.__edgeColor;
       if (typeof ch.__edgeWidth === "number" && ch.__edgeWidth > 0 && gc.__edgeWidth === undefined) {
         gc.__edgeWidth = ch.__edgeWidth;
@@ -703,7 +826,7 @@ async function fetchInitialText(path: string, signal: AbortSignal) {
 }
 
 export default function TreeEditor(){
-  const EXAMPLE="((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4)88/0.92:0.5);";
+  const EXAMPLE="(((A:0.2,B:0.25)95/0.98:0.1,(C:0.2,D:0.25)88/0.92:0.15):0.15,E:0.55);";
   const [rawText,setRawText]=useState(EXAMPLE);
   const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
   const newickWarning = useMemo(()=>{
@@ -734,17 +857,21 @@ export default function TreeEditor(){
   const [supportLabelSize,setSupportLabelSize]=useState(15);
   const [branchLenOffsetX,setBranchLenOffsetX]=useState(0);
   const [branchLenOffsetY,setBranchLenOffsetY]=useState(-4);
-  const [bootstrapOffsetX,setBootstrapOffsetX]=useState(0);
-  const [bootstrapOffsetY,setBootstrapOffsetY]=useState(-18);
-  const [nodeLabelOffsetX,setNodeLabelOffsetX]=useState(-4);
-  const [nodeLabelOffsetY,setNodeLabelOffsetY]=useState(-6);
+  const [supportLabelPosition,setSupportLabelPosition]=useState<SupportLabelPosition>(DEFAULT_SUPPORT_LABEL_POSITION);
+  const [supportInterpretation,setSupportInterpretation]=useState<SupportInterpretation>("branch");
+  const [bootstrapOffsetX,setBootstrapOffsetX]=useState(SUPPORT_LABEL_OFFSETS[DEFAULT_SUPPORT_LABEL_POSITION].x);
+  const [bootstrapOffsetY,setBootstrapOffsetY]=useState(SUPPORT_LABEL_OFFSETS[DEFAULT_SUPPORT_LABEL_POSITION].y);
+  const [nodeLabelOffsetX,setNodeLabelOffsetX]=useState(NODE_LABEL_OFFSET.x);
+  const [nodeLabelOffsetY,setNodeLabelOffsetY]=useState(NODE_LABEL_OFFSET.y);
   const [leafLabelOffsetX,setLeafLabelOffsetX]=useState(5);
   const [leafLabelOffsetY,setLeafLabelOffsetY]=useState(0);
   const [yGap,setYGap]=useState(50);
   const [italic,setItalic]=useState(false);
   const [showNodeLabels,setShowNodeLabels]=useState(false);
   const [showBranchLen,setShowBranchLen]=useState(false);
-  const [showBootstrap,setShowBootstrap]=useState(false);
+  const [showBootstrap,setShowBootstrap]=useState(()=>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("showSupport") === "1"
+  );
   const [showNodeDots,setShowNodeDots]=useState(false);
   const [branchEditMode,setBranchEditMode]=useState(false);
   const [canvasOnlyMode,setCanvasOnlyMode]=useState(false);
@@ -957,13 +1084,13 @@ export default function TreeEditor(){
     return cloneNode(tree);
   },[tree, tipCountsById]);
 
-  const measureLabelWidth = useCallback((text: string, fontSize: number, italicFlag: boolean)=>{
+  const measureLabelWidth = useCallback((text: string, fontSize: number, italicFlag: boolean, boldFlag = false)=>{
     if(!textMeasureCanvasRef.current){
       textMeasureCanvasRef.current=document.createElement("canvas");
     }
     const ctx=textMeasureCanvasRef.current.getContext("2d");
     if(!ctx) return text.length * fontSize * 0.6;
-    ctx.font=`${italicFlag?"italic":"normal"} ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+    ctx.font=`${italicFlag?"italic":"normal"} ${boldFlag?"700":"400"} ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
     const metrics=ctx.measureText(text);
     return metrics.width;
   },[]);
@@ -1034,8 +1161,8 @@ export default function TreeEditor(){
     />
   );
   const layoutContainerClass = canvasOnlyMode
-    ? "w-full p-2 flex flex-nowrap gap-2 items-start"
-    : "w-full px-4 sm:px-6 lg:px-10 py-6 flex flex-nowrap gap-3 overflow-x-auto items-start";
+    ? "w-full flex-1 min-h-0 p-2 flex flex-nowrap gap-2 items-stretch"
+    : "w-full flex-1 min-h-0 px-2 sm:px-3 py-2 flex flex-nowrap gap-2 overflow-x-auto items-stretch";
   const effectiveLeftRatio = (()=> {
     if(containerWidth && leftPaneWidth !== null){
       return Math.max(0.2, Math.min(0.7, leftPaneWidth / containerWidth));
@@ -1046,10 +1173,9 @@ export default function TreeEditor(){
     ? "flex-1 min-w-0 p-2 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative"
     : "flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative";
   const rightPaneInlineStyle = canvasOnlyMode
-    ? { minHeight:"100vh", height:"100vh" }
+    ? { height:"100%" }
     : {
-      minHeight:"calc(90vh)",
-      height:"calc(95vh)",
+      height:"100%",
       flexBasis: `${Math.max(30, Math.round((1 - effectiveLeftRatio) * 100))}%`,
       flexGrow: 1
     };
@@ -1064,8 +1190,8 @@ export default function TreeEditor(){
         flexShrink:0,
         overflow:"hidden",
         position:"relative",
-        height:"calc(95vh)",
-        maxHeight:"calc(95vh)"
+        height:"100%",
+        maxHeight:"100%"
       };
     }
     const pct = Math.round(leftPaneRatio*100);
@@ -1077,24 +1203,14 @@ export default function TreeEditor(){
       flexShrink:0,
       overflow:"hidden",
       position:"relative",
-      height:"calc(95vh)",
-      maxHeight:"calc(95vh)"
+      height:"100%",
+      maxHeight:"100%"
     };
   },[canvasOnlyMode, leftPaneWidth, leftPaneRatio]);
 
   // Horizontal scale width adjustable via UI
   const [xScaleWidth, setXScaleWidth] = useState(()=>1200);
   const [autoWidthHint, setAutoWidthHint] = useState(()=>1200);
-  const horizontalScaleSliderMin = useMemo(()=>{
-    const base = Math.max(MIN_HORIZONTAL_SCALE_WIDTH, autoWidthHint || MIN_HORIZONTAL_SCALE_WIDTH);
-    const relativeMin = Math.floor((base * 0.1) / 50) * 50;
-    return Math.max(MIN_HORIZONTAL_SCALE_WIDTH, Math.min(xScaleWidth, relativeMin || MIN_HORIZONTAL_SCALE_WIDTH));
-  },[autoWidthHint, xScaleWidth]);
-  const horizontalScaleSliderMax = useMemo(()=>{
-    const base = Math.max(MIN_HORIZONTAL_SCALE_WIDTH, autoWidthHint || MIN_HORIZONTAL_SCALE_WIDTH);
-    const relativeMax = Math.ceil((base * 3) / 50) * 50;
-    return Math.max(400, Math.min(MAX_HORIZONTAL_SCALE_WIDTH, Math.max(xScaleWidth, relativeMax)));
-  },[autoWidthHint, xScaleWidth]);
   const clampHorizontalWidth = useCallback((value: number)=>{
     const numeric = Number.isFinite(value) ? value : autoWidthHint;
     return Math.max(MIN_HORIZONTAL_SCALE_WIDTH, Math.min(MAX_HORIZONTAL_SCALE_WIDTH, numeric || MIN_HORIZONTAL_SCALE_WIDTH));
@@ -1147,7 +1263,10 @@ export default function TreeEditor(){
     const root = d3.hierarchy<TreeNode>(displayTree);
     let max = 0;
     root.leaves().forEach(leaf=>{
-      const name = leaf.data.name || "Unnamed";
+      const collapsedCount = typeof leaf.data.__collapsedTipCount === "number" ? leaf.data.__collapsedTipCount : 0;
+      const name = leaf.data.__isCollapsedPlaceholder
+        ? resolveCollapsedLabel(leaf.data, collapsedCount)
+        : (leaf.data.name || "Unnamed");
       const widthPx = measureLabelWidth(name, leafLabelSize, italic);
       if(widthPx > max) max = widthPx;
     });
@@ -1195,14 +1314,21 @@ export default function TreeEditor(){
       recommendedWidth = Math.max(branchSpace, basePerDepth * Math.max(1, maxDepth));
     }
     const complexityBoost = branchSpace * (1 + Math.log10(leaves + 1) * 0.35);
-    const perDepthComfort = Math.max(branchSpace, Math.max(140, leafLabelSize * 5.5) * Math.max(1, maxDepth));
+    const perLevelFloor = Math.max(140, leafLabelSize * 5.5);
+    const perDepthComfort = Math.max(branchSpace, perLevelFloor * Math.max(1, maxDepth));
     recommendedWidth = Math.max(recommendedWidth, complexityBoost, perDepthComfort);
+    const perLevelCeiling = Math.max(perLevelFloor, leafLabelSize * HORIZONTAL_LEVEL_CEILING);
+    const treeHeight = Math.max(1, (leaves - 1) * yGap);
+    recommendedWidth = Math.min(recommendedWidth, Math.max(
+      perLevelCeiling * Math.max(1, maxDepth),
+      treeHeight * HORIZONTAL_ASPECT_CEILING,
+    ));
     const maxReadableWidthRaw = Math.floor((usableCanvasWidth / READABLE_FIT_SCALE) - labelReserve);
     const maxReadableWidth = Math.max(branchSpace, Math.min(80000, maxReadableWidthRaw));
     recommendedWidth = Math.min(recommendedWidth, maxReadableWidth);
     recommendedWidth = Math.max(400, Math.min(80000, recommendedWidth));
     return Math.round(recommendedWidth);
-  },[refreshPaneDimensions, longestLabelWidthPx, leafLabelOffsetX, displayTree, layout, tipCount, leafLabelSize]);
+  },[refreshPaneDimensions, longestLabelWidthPx, leafLabelOffsetX, displayTree, layout, tipCount, leafLabelSize, yGap]);
 
   useEffect(()=>{
     const recommended = computeAutoHorizontalScale();
@@ -1353,7 +1479,7 @@ export default function TreeEditor(){
       const collapsedMetrics = isCollapsed ? getCollapsedTriangleMetrics(n.d.data.__collapsedTipCount) : null;
       const trimmed = (n.d.data.name ?? "").toString().trim();
       const collapsedCount = typeof n.d.data.__collapsedTipCount === "number" ? n.d.data.__collapsedTipCount : 0;
-      const labelText = isCollapsed ? `(${collapsedCount})` : (trimmed || "Unnamed");
+      const labelText = isCollapsed ? resolveCollapsedLabel(n.d.data, collapsedCount) : (trimmed || "Unnamed");
       const offset = (collapsedMetrics?.width ?? 0) + labelPad;
       const approx = measureLabelWidth(labelText, leafLabelSize, !isCollapsed && italic) + offset;
       return Math.max(max, n.x + approx);
@@ -1518,7 +1644,10 @@ export default function TreeEditor(){
         ? selectedBranchNode.__edgeWidth
         : edgeWidth;
     setBranchWidthInput(String(widthValue));
-    if(selectedBranchNode && !selectedBranchNode.children?.length){
+    if(selectedBranchNode?.__collapsed){
+      const count = selectedBranchNode.__id !== undefined ? (tipCountsById.get(selectedBranchNode.__id) ?? 0) : 0;
+      setTipNameInput(resolveCollapsedLabel(selectedBranchNode, count));
+    }else if(selectedBranchNode){
       setTipNameInput(selectedBranchNode.name || "");
     }else{
       setTipNameInput("");
@@ -1532,7 +1661,7 @@ export default function TreeEditor(){
     }else{
       setNodeSizeInput("");
     }
-  },[selectedBranchNode, edgeWidth, selection]);
+  },[selectedBranchNode, edgeWidth, selection, tipCountsById]);
 
   const activeSelectionColor = useMemo(()=>{
     if(!selection || !selectedBranchNode) return null;
@@ -1540,6 +1669,7 @@ export default function TreeEditor(){
       ? (selectedBranchNode.__edgeColor ?? null)
       : (selectedBranchNode.__color ?? null);
   },[selection, selectedBranchNode]);
+  const selectedNodeIsInternal = Boolean(selectedBranchNode?.children?.length);
   const canCollapseSelection = Boolean(selectedBranchNode?.children?.length && !selectedBranchNode.__collapsed);
   const canExpandSelection = Boolean(selectedBranchNode?.__collapsed);
 
@@ -1654,11 +1784,13 @@ export default function TreeEditor(){
   const didFirstFitRef = useRef(false);
   const didInitialResetRef = useRef(false);
 
-  const handleHorizontalScaleSlider = useCallback((value: number)=>{
-    userSetWidthRef.current = true;
-    userAdjustedZoomRef.current = true;
-    setXScaleWidth(clampHorizontalWidth(value));
-  },[clampHorizontalWidth]);
+  const horizontalScaleSliderPos = useMemo(()=>{
+    const auto = Math.max(1, autoWidthHint);
+    const ratio = Math.max(1e-6, xScaleWidth / auto);
+    const half = HORIZONTAL_SCALE_SLIDER_STEPS / 2;
+    const pos = half + half * (Math.log(ratio) / Math.log(HORIZONTAL_SCALE_SLIDER_SPAN));
+    return Math.round(Math.max(0, Math.min(HORIZONTAL_SCALE_SLIDER_STEPS, pos)));
+  },[autoWidthHint, xScaleWidth]);
 
   const handleManualYGapChange = useCallback((value: number)=>{
     userSetYGapRef.current = true;
@@ -1707,6 +1839,12 @@ export default function TreeEditor(){
     actionEditNodeSize(numeric, { keepMenu:true });
   },[selection, actionEditNodeSize]);
 
+  const handleSupportLabelPositionChange = useCallback((position: SupportLabelPosition)=>{
+    setSupportLabelPosition(position);
+    setBootstrapOffsetX(SUPPORT_LABEL_OFFSETS[position].x);
+    setBootstrapOffsetY(SUPPORT_LABEL_OFFSETS[position].y);
+  },[]);
+
   const handleCurrentNewickEditableChange = useCallback((value: string)=>{
     setCurrentNewickEditable(value);
     try{
@@ -1746,6 +1884,15 @@ export default function TreeEditor(){
     userAdjustedZoomRef.current = true;
   },[baseTranslateX, baseTranslateY, zoomK]);
 
+  const handleHorizontalScaleSliderPos = useCallback((pos: number)=>{
+    const auto = Math.max(1, autoWidthHint);
+    const half = HORIZONTAL_SCALE_SLIDER_STEPS / 2;
+    const ratio = Math.pow(HORIZONTAL_SCALE_SLIDER_SPAN, (pos - half) / half);
+    setXScaleWidth(clampHorizontalWidth(Math.round((auto * ratio) / 10) * 10));
+    userSetWidthRef.current = true;
+    userAdjustedZoomRef.current = true;
+  },[autoWidthHint, clampHorizontalWidth]);
+
   const applyAutoHorizontalScale = useCallback(()=>{
     userSetWidthRef.current = false;
     const recommended = computeAutoHorizontalScale();
@@ -1758,17 +1905,17 @@ export default function TreeEditor(){
     const paneHeight = Math.max(100, paneDimensions.h - 160);
     const leaves = Math.max(1, tipCount);
     if(leaves > 50){
-      return 15;
+      return Math.max(MIN_AUTO_VERTICAL_SPACING, Math.round(leafLabelSize * 0.9));
     }
     const baseSpacing = Math.max(16, Math.min(100, Math.floor(paneHeight / Math.max(1, leaves))));
     const comfortableBase = Math.max(leafLabelSize * 1.8, 26);
     const comfortSpacing = Math.min(200, comfortableBase * (1 + Math.log10(leaves + 1) * 0.45));
     const cappedComfort = Math.min(200, Math.max(baseSpacing, comfortSpacing));
     const smallTreeCap = leaves <= 50
-      ? Math.max(20, Math.floor((paneHeight - 80) / Math.max(1, leaves + 4)))
+      ? Math.max(MIN_AUTO_VERTICAL_SPACING, Math.floor((paneHeight - 80) / Math.max(1, leaves + 4)))
       : null;
     const spacing = smallTreeCap ? Math.min(cappedComfort, smallTreeCap) : cappedComfort;
-    return Math.round(Math.max(12, spacing));
+    return Math.round(Math.max(MIN_AUTO_VERTICAL_SPACING, spacing));
   },[paneDimensions.h, tipCount, leafLabelSize]);
 
   const autoAdjustVerticalSpacing = useCallback(()=>{
@@ -2159,13 +2306,14 @@ export default function TreeEditor(){
     if(selection.type==='node'){ const p=parentOf(tree, selection.id); if(!p){ alert('Cannot delete the root node'); return; }
       p.children=(p.children||[]).filter(c=>c.__id!==selection.id); if(!p.children?.length) delete p.children;
     } else { const p=findById(tree, selection.parentId); if(!p?.children) return; p.children=p.children.filter(c=>c.__id!==selection.childId); if(!p.children?.length) delete p.children; }
-    collapseUnaryInPlace(tree); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
+    collapseUnaryInPlace(tree, supportInterpretation); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false}); commitTree(clone(tree), { preserveZoom: true });
   }
   function actionAddLeaf(){
     if(!selection) return;
     const addLeafOnEdge = (parent: TreeNode, child: TreeNode)=>{
       const currentLength = typeof child.length === "number" && Number.isFinite(child.length) ? child.length : 0.1;
-      const R = splitEdge(parent, child, Math.max(1e-6, currentLength / 2));
+      const R = splitEdge(parent, child, Math.max(1e-6, currentLength / 2), supportInterpretation);
+      delete R.support;
       R.children ??= [];
       R.children.push({
         __id: nextId(),
@@ -2243,24 +2391,25 @@ export default function TreeEditor(){
     })(root);
   }
   function actionReroot(){ if(!selection) return;
+    const draft = clone(tree);
     if(selection.type==='node'){
-      const obj=findById(tree,selection.id); if(!obj) return;
+      const obj=findById(draft,selection.id); if(!obj) return;
       const isLeaf = !obj.children?.length;
       if(isLeaf){
-        const parent = parentOf(tree, selection.id);
+        const parent = parentOf(draft, selection.id);
         if(!parent) return;
-        const r0 = rerootOnEdge(tree, parent.__id ?? selection.id, selection.id, 0.5);
-        const r = collapseUnaryInPlace(r0); ensureIds(r);
+        const r0 = rerootOnEdge(draft, parent.__id ?? selection.id, selection.id, 0.5, supportInterpretation);
+        const r = collapseUnaryInPlace(r0, supportInterpretation); ensureIds(r);
         ladderizeTipBottom(r, selection.id);
         commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
         return;
       }
-      const r0=rerootAt(tree,obj); const r=collapseUnaryInPlace(r0); ensureIds(r);
+      const r0=rerootAt(draft,obj,supportInterpretation); const r=collapseUnaryInPlace(r0,supportInterpretation); ensureIds(r);
       if(!obj.children?.length && obj.__id !== undefined) ladderizeTipBottom(r,obj.__id);
       commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
     }
     else {
-      const {parentId,childId}=selection; const r0=rerootOnEdge(tree,parentId,childId,0.5); const r=collapseUnaryInPlace(r0); ensureIds(r);
+      const {parentId,childId}=selection; const r0=rerootOnEdge(draft,parentId,childId,0.5,supportInterpretation); const r=collapseUnaryInPlace(r0,supportInterpretation); ensureIds(r);
       const tip=findById(r,childId);
       if(tip && !tip.children?.length && tip.__id !== undefined) ladderizeTipBottom(r, tip.__id);
       commitTree(clone(r), { preserveZoom: true }); setSelection(null); setMultiSelection([]); setMenu({...menu,visible:false});
@@ -2269,11 +2418,26 @@ export default function TreeEditor(){
   function actionRenameTip(nm: string){
     if(!selection) return;
     const id=selection.type==='node'?selection.id:selection.childId;
-    const t=findById(tree,id); if(!t) return;
-    if(t.children?.length){ alert('Only leaf nodes can be renamed'); return; }
+    const target=findById(tree,id); if(!target) return;
     const nextName=(nm ?? tipNameInput ?? "").trim();
-    t.name=nextName || 'Unnamed';
-    setTipNameInput(t.name);
+    const isInternal=Boolean(target.children?.length);
+    if(target.__collapsed){
+      // The field holds the caption verbatim. Matching the generated text drops the
+      // override so the count keeps tracking the clade.
+      const count = target.__id !== undefined ? (tipCountsById.get(target.__id) ?? 0) : 0;
+      if(!nextName || nextName === collapsedPlaceholderLabel(target.name, count)) delete target.__collapsedLabel;
+      else target.__collapsedLabel = nextName;
+      setTipNameInput(resolveCollapsedLabel(target, count));
+    }else if(isInternal){
+      // Internal names are optional; clearing one removes it rather than leaving "Unnamed".
+      if(nextName) target.name=nextName; else delete target.name;
+      // An expanded node only shows its name once node labels are on.
+      if(nextName) setShowNodeLabels(true);
+      setTipNameInput(nextName);
+    }else{
+      target.name=nextName || 'Unnamed';
+      setTipNameInput(target.name);
+    }
     commitTree(clone(tree), { preserveZoom: true });
     setMenu({...menu,visible:false});
   }
@@ -2429,11 +2593,10 @@ export default function TreeEditor(){
       if(baseFill) circle.setAttribute('fill', baseFill);
     });
     const labelHighlights = group.querySelectorAll<SVGElement>('[data-label-highlight]');
-    labelHighlights.forEach(el=>{
-      el.removeAttribute('stroke');
-      el.removeAttribute('stroke-width');
-      el.removeAttribute('paint-order');
-    });
+    labelHighlights.forEach(el=>{ el.remove(); });
+    // Hit targets are invisible but still count towards the exported bounding box.
+    const hitTargets = group.querySelectorAll<SVGElement>('[data-hit-target], [data-selection-dot]');
+    hitTargets.forEach(el=>{ el.remove(); });
   }
   const buildStandaloneSVGBlobWithScaleBar = useCallback((): { blob: Blob; width: number; height: number; viewBox: [number, number, number, number] } | null=>{
     const gNode=gRef.current; if(!gNode) return null;
@@ -2684,9 +2847,9 @@ export default function TreeEditor(){
   ]);
 
     const tabs = useMemo<{ id: typeof activeTab; label: string }[]>(()=>[
-    { id: "data", label: t("dataTab","Data") },
-    { id: "selection", label: t("selectionTab","Selection") },
-    { id: "rendering", label: t("renderingTab","Rendering") },
+    { id: "data", label: t("dataTab","Tree") },
+    { id: "selection", label: t("selectionTab","Edit") },
+    { id: "rendering", label: t("renderingTab","Style") },
     { id: "export", label: t("exportTab","Export") },
   ],[t]);
   const renderTabContent = () => {
@@ -2713,6 +2876,10 @@ export default function TreeEditor(){
               {newickWarning && <p className="text-sm font-semibold text-red-600 whitespace-pre-line">{newickWarning}</p>}
             </div>
             <button className={`${BUTTON_CLASSES} w-full`} onClick={applyText}>{t("applyNewick","Apply NEWICK")}</button>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={showBootstrap} onChange={(e)=>setShowBootstrap(e.target.checked)} />
+              <span>{t("showSupportValues","Show support values")}</span>
+            </label>
             {newickStats && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("statsTitle","Current tree stats")}</div>
@@ -2869,6 +3036,13 @@ export default function TreeEditor(){
               <div className="col-span-2 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nameLabel","Name")}</span>
                 <input className={`${INPUT_CLASSES} w-full`} placeholder="Enter & hit ↵" value={tipNameInput} onChange={(e)=>setTipNameInput(e.currentTarget.value)} onKeyDown={(e)=>{ if(e.key==='Enter') actionRenameTip(e.currentTarget.value); }} />
+                {selectedNodeIsInternal && (
+                  <span className="block text-xs text-slate-500">
+                    {canExpandSelection
+                      ? t("collapsedNameHint","The whole caption on the triangle, leaf count included. Empty restores the count.")
+                      : t("internalNameHint","Shown when Internal node labels is on.")}
+                  </span>
+                )}
               </div>
               {selectedLeaf && (
                 <div className="col-span-2 space-y-1 mt-3">
@@ -3014,7 +3188,7 @@ export default function TreeEditor(){
                             step={1}
                             onChange={(e)=>{
                               const next=parseFloat(e.target.value);
-                              setNodeLabelOffsetX(Number.isFinite(next)?next:-4);
+                              setNodeLabelOffsetX(Number.isFinite(next)?next:NODE_LABEL_OFFSET.x);
                             }}
                           />
                           <span className="text-xs text-slate-500">Y</span>
@@ -3025,7 +3199,7 @@ export default function TreeEditor(){
                             step={1}
                             onChange={(e)=>{
                               const next=parseFloat(e.target.value);
-                              setNodeLabelOffsetY(Number.isFinite(next)?next:-6);
+                              setNodeLabelOffsetY(Number.isFinite(next)?next:NODE_LABEL_OFFSET.y);
                             }}
                           />
                         </div>
@@ -3094,14 +3268,44 @@ export default function TreeEditor(){
                     <input type="checkbox" checked={showBootstrap} onChange={(e)=>setShowBootstrap(e.target.checked)} />
                     <span>{t("supportValues","Support values")}</span>
                   </label>
+                  <label className="flex items-start gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={supportInterpretation === "node"}
+                      onChange={(e)=>setSupportInterpretation(e.target.checked ? "node" : "branch")}
+                      aria-describedby={supportInterpretation === "node" ? "node-support-hint" : undefined}
+                    />
+                    <span>{t("interpretSupportAsNode","Interpret values as node-associated")}</span>
+                  </label>
+                  {supportInterpretation === "node" && (
+                    <p id="node-support-hint" className="text-xs text-slate-500">
+                      {t("nodeSupportHint","Rerooting keeps values on the original nodes. Support for changed clades is not recalculated.")}
+                    </p>
+                  )}
                   {showBootstrap && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>Text size</span>
+                        <span>{t("supportPosition","Position")}</span>
+                        <div className="flex overflow-hidden rounded-xl border border-slate-200">
+                          {(["branch","node"] as SupportLabelPosition[]).map((position)=>(
+                            <button
+                              key={position}
+                              type="button"
+                              onClick={()=>handleSupportLabelPositionChange(position)}
+                              className={`px-3 py-1.5 text-sm font-semibold transition ${supportLabelPosition===position?"bg-[#286699] text-white":"bg-white text-[#286699] hover:bg-[#286699]/10"}`}
+                            >
+                              {position==="branch" ? t("supportOnBranch","Branch") : t("supportOnNode","Node")}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{t("textSize","Text size")}</span>
                         <input type="number" className={`${INPUT_CLASSES} w-20`} value={supportLabelSize} onChange={(e)=>setSupportLabelSize(parseFloat(e.target.value)||15)} />
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span>Offset</span>
+                        <span>{t("offset","Offset")}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500">X</span>
                           <input
@@ -3138,7 +3342,7 @@ export default function TreeEditor(){
                   {showNodeDots && (
                     <div className="space-y-3 text-sm text-slate-600 pl-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>Leaf size</span>
+                        <span>{t("leafDotSize","Leaf size")}</span>
                         <input
                           type="number"
                           className={`${INPUT_CLASSES} w-20`}
@@ -3152,7 +3356,7 @@ export default function TreeEditor(){
                         />
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span>Internal size</span>
+                        <span>{t("internalDotSize","Internal size")}</span>
                         <input
                           type="number"
                           className={`${INPUT_CLASSES} w-20`}
@@ -3456,49 +3660,10 @@ export default function TreeEditor(){
 
   return (
     <div
-      className={canvasOnlyMode ? "min-h-screen bg-white text-slate-900" : "min-h-screen bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"}
+      className={canvasOnlyMode ? "h-screen flex flex-col overflow-hidden bg-white text-slate-900" : "h-screen flex flex-col overflow-hidden bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"}
       onMouseDownCapture={handleRootMouseDownCapture}
       onClick={handleRootClick}
     >
-      {!canvasOnlyMode && (
-        <div className="border-b border-white/30 bg-white/70 backdrop-blur">
-          <div className="w-full px-4 sm:px-6 lg:px-10 py-2 flex items-center justify-between">
-            <a
-              href={HOMEPAGE_URL}
-              className="flex items-center gap-3 rounded-lg px-2 py-1 transition hover:bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#286699]/40"
-            >
-              <img src={LogoSvg} alt="PhyloWeaver" className="h-8 w-auto select-none" draggable={false} />
-              <span className="text-sm text-slate-500">{t("headerTagline","Interactive editor for phylogenies")}</span>
-            </a>
-            <div className="flex items-center gap-3">
-              <div className="flex rounded-full border border-[#286699]/30 bg-white/80 text-sm font-semibold overflow-hidden">
-                {(["en","jp"] as Locale[]).map((code)=>(
-                  <button
-                    key={code}
-                    type="button"
-                    onClick={()=>setLang(code)}
-                    className={`px-3 py-1 transition ${lang===code?"bg-[#286699] text-white":"text-[#286699]"}`}
-                  >
-                    {code.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <a
-                href={GITHUB_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-[#286699]/30 bg-white/80 px-4 py-2 text-sm font-semibold text-[#286699] transition hover:bg-[#286699]/10"
-              >
-                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                  <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
-                </svg>
-                <span>GitHub</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className={layoutContainerClass} ref={layoutContainerRef}>
         <div ref={leftPaneRef} className={canvasOnlyMode ? "hidden" : "relative flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"} style={leftPaneStyle}>
           <div className="relative flex h-full min-h-0 flex-col rounded-xl bg-white/95 shadow-xl overflow-hidden">
@@ -3508,7 +3673,7 @@ export default function TreeEditor(){
                   key={tab.id}
                   onClick={()=>setActiveTab(tab.id)}
                   className={[
-                    "w-full px-4 py-3 text-sm font-semibold transition-colors duration-150 border-b-2 -mb-px flex items-center justify-center text-center whitespace-nowrap",
+                    "w-full px-1.5 py-2.5 text-sm font-extrabold transition-colors duration-150 border-b-2 -mb-px flex items-center justify-center text-center whitespace-nowrap",
                     activeTab===tab.id
                       ? "bg-white text-[#1f4870] border-[#3874a6] shadow-[inset_0_-2px_6px_rgba(0,0,0,0.08)]"
                       : "bg-[#e7ecf3] text-[#4b6786]/50 border-transparent hover:text-[#1f4870] hover:bg-white/60"
@@ -3520,6 +3685,41 @@ export default function TreeEditor(){
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
               {renderTabContent()}
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] px-3 py-2">
+              <a
+                href={HOMEPAGE_URL}
+                title={t("headerTagline","Interactive editor for phylogenies")}
+                className="flex min-w-0 items-center rounded-lg px-1 py-1 transition hover:bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#286699]/40"
+              >
+                <img src={LogoSvg} alt="PhyloWeaver" className="h-6 w-auto select-none" draggable={false} />
+              </a>
+              <div className="flex items-center gap-2">
+                <div className="flex overflow-hidden rounded-full border border-[#286699]/30 bg-white/80 text-xs font-semibold">
+                  {(["en","jp"] as Locale[]).map((code)=>(
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={()=>setLang(code)}
+                      className={`px-2.5 py-1 transition ${lang===code?"bg-[#286699] text-white":"text-[#286699]"}`}
+                    >
+                      {code.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <a
+                  href={GITHUB_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="GitHub"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#286699]/30 bg-white/80 px-2.5 py-1 text-xs font-semibold text-[#286699] transition hover:bg-[#286699]/10"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 .198a8 8 0 0 0-2.53 15.6c.4.074.547-.174.547-.386 0-.19-.007-.693-.01-1.36-2.226.484-2.695-1.073-2.695-1.073-.364-.924-.89-1.17-.89-1.17-.727-.497.055-.487.055-.487.804.057 1.227.826 1.227.826.715 1.225 1.874.871 2.33.666.073-.518.28-.872.508-1.073-1.777-.202-3.644-.888-3.644-3.953 0-.873.312-1.587.823-2.148-.083-.203-.357-1.016.078-2.12 0 0 .67-.215 2.2.82a7.64 7.64 0 0 1 4.004 0c1.53-1.035 2.2-.82 2.2-.82.437 1.104.163 1.917.08 2.12.513.56.822 1.274.822 2.148 0 3.073-1.87 3.748-3.65 3.947.287.247.543.735.543 1.48 0 1.068-.01 1.93-.01 2.193 0 .214.144.463.55.384A8 8 0 0 0 8 .198" />
+                </svg>
+                  <span>GitHub</span>
+                </a>
+              </div>
             </div>
           </div>
           {!canvasOnlyMode && (
@@ -3597,6 +3797,7 @@ export default function TreeEditor(){
                 </button>
                 <button
                   className={`${BUTTON_CLASSES} text-base`}
+                  title={t("resetViewHint","Recompute branch width and row spacing for this tree, then fit it to the screen.")}
                   onClick={(e)=>{
                     e.stopPropagation();
                     setSelection(null);
@@ -3607,16 +3808,17 @@ export default function TreeEditor(){
                     requestAnimationFrame(()=>autoAdjustVerticalSpacing());
                   }}
                 >
-                  {t("resetView","Reset view")}
+                  {t("resetView","Reset layout")}
                 </button>
                 <button
                   className={`${SECONDARY_BUTTON_CLASSES} text-base`}
+                  title={t("fitViewHint","Zoom and centre so the whole tree is visible. Spacing is left alone.")}
                   onClick={(e)=>{
                     e.stopPropagation();
                     fitToViewport();
                   }}
                 >
-                  {t("fitView","Zoom reset")}
+                  {t("fitView","Fit to screen")}
                 </button>
                 <button
                   className={`${BUTTON_CLASSES} text-base flex items-center gap-2`}
@@ -3652,12 +3854,12 @@ export default function TreeEditor(){
                   </span>
                   <input
                     type="range"
-                    min={horizontalScaleSliderMin}
-                    max={horizontalScaleSliderMax}
-                    step={50}
-                    value={xScaleWidth}
-                    onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSlider(parseFloat(e.target.value)); }}
-                    className="w-40 accent-[#286699] sm:w-56"
+                    min={0}
+                    max={HORIZONTAL_SCALE_SLIDER_STEPS}
+                    step={1}
+                    value={horizontalScaleSliderPos}
+                    onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSliderPos(parseFloat(e.target.value)); }}
+                    className="w-40 accent-[#286699]"
                   />
                   <span className="text-slate-700 w-12 text-right text-sm">{Math.round(xScaleWidth)}</span>
                 </label>
@@ -3673,7 +3875,7 @@ export default function TreeEditor(){
                     step={2}
                     value={yGap}
                     onChange={(e)=>{ e.stopPropagation(); handleManualYGapChange(parseFloat(e.target.value)); }}
-                    className="w-24 accent-[#286699]"
+                    className="w-40 accent-[#286699]"
                   />
                   <span className="text-slate-700 w-10 text-right text-sm">{Math.round(yGap)}</span>
                 </label>
@@ -3760,7 +3962,7 @@ export default function TreeEditor(){
                 const highlightStrokeWidth = highlightActive ? Math.max(baseWidth + 3, baseWidth * 1.65) : null;
                 const midX = (source.x + target.x) / 2;
                 const branchLenValue = typeof childData.length === 'number' && Number.isFinite(childData.length) ? childData.length : 0;
-                const supportValue = childData.name;
+                const supportValue = getSupportValue(childData);
                 const parentKey = parentId ?? `p-${idx}`;
                 const childKeyLabel = childId ?? `c-${idx}`;
                 return (
@@ -3823,8 +4025,14 @@ export default function TreeEditor(){
                     {layout==='phylogram' && showBranchLen && (
                       <text x={midX + branchLenOffsetX} y={target.y + branchLenOffsetY} fontSize={branchLabelSize} textAnchor="middle" className="fill-slate-600 select-none">{branchLenValue.toFixed(branchLengthPrecisionSafe)}</text>
                     )}
-                    {showBootstrap && typeof supportValue === 'string' && supportValue.trim() && !Number.isNaN(parseFloat(supportValue)) && (
-                      <text x={midX + bootstrapOffsetX} y={target.y + bootstrapOffsetY} fontSize={supportLabelSize} textAnchor="middle" className="fill-slate-500 select-none">{supportValue}</text>
+                    {showBootstrap && supportValue !== null && (
+                      <text
+                        x={(supportLabelPosition==='node' ? target.x : midX) + bootstrapOffsetX}
+                        y={target.y + bootstrapOffsetY}
+                        fontSize={supportLabelSize}
+                        textAnchor={supportLabelPosition==='node' ? "end" : "middle"}
+                        className="fill-slate-500 select-none"
+                      >{supportValue}</text>
                     )}
                   </g>
                 );
@@ -3859,7 +4067,7 @@ export default function TreeEditor(){
                 const textStartX = collapsedWidth + labelPadding;
                 const rawName = n.d.data.name ?? "";
                 const trimmedName = rawName.trim();
-                const collapsedLabelText = isCollapsedLeaf ? `(${collapsedTipCount ?? 0})` : "";
+                const collapsedLabelText = isCollapsedLeaf ? resolveCollapsedLabel(n.d.data, collapsedTipCount ?? 0) : "";
                 const leafLabelText = trimmedName || "Unnamed";
                 const displayLabelText = isCollapsedLeaf ? collapsedLabelText : leafLabelText;
                 const collapsedPreview = collapsedLeafNames?.slice(0, 5) ?? [];
@@ -3886,16 +4094,21 @@ export default function TreeEditor(){
                   ? "search-active"
                   : (searchHighlight ? "search" : (selectedLeaf ? "selection" : null));
                 const showHighlight = highlightMode !== null;
-                const highlightStroke = highlightMode === "selection"
-                  ? "#d97706"
-                  : (highlightMode === "search-active" ? "#f59e0b" : "#f4c84a");
-                const highlightStrokeWidth = highlightMode === "selection" ? 2.2 : (highlightMode === "search-active" ? 2 : 1.6);
+                const highlightFill = highlightMode === "selection"
+                  ? "#f59e0b"
+                  : (highlightMode === "search-active" ? "#fb923c" : "#fbd45f");
+                const highlightFillOpacity = highlightMode === "selection" ? 0.38 : (highlightMode === "search-active" ? 0.45 : 0.5);
                 const labelClasses = [
                   "select-none",
-                  labelBold ? "font-bold" : (showHighlight ? "font-semibold" : ""),
-                  shouldItalicize ? "italic" : "",
-                  isCollapsedLeaf ? "font-medium" : ""
+                  labelBold ? "font-bold" : "",
+                  shouldItalicize ? "italic" : ""
                 ].filter(Boolean).join(" ");
+                const highlightFontSize = isCollapsedLeaf ? leafLabelSize : labelFontSize;
+                const highlightPadX = Math.max(2, highlightFontSize * 0.2);
+                const highlightBandHeight = highlightFontSize * 1.35;
+                const highlightBandWidth = showHighlight
+                  ? measureLabelWidth(displayLabelText, highlightFontSize, shouldItalicize, labelBold) + highlightPadX * 2
+                  : 0;
                 const baseLeafFill = nodeColor || '#1f2937';
                 const collapsedStrokeColor = nodeColor || '#000000ff';
                 const collapsedFillColor = nodeColor || '#000000ff';
@@ -3911,6 +4124,16 @@ export default function TreeEditor(){
                     onClick={(e)=>onClickNode(n,e)}
                     onMouseDown={(e)=>handleNodeMouseDown(n,e)}
                   >
+                    {/* An unnamed internal node draws nothing of its own, so with node
+                        dots off its group had no hit area and could not be selected
+                        at all. This target is invisible and stripped from exports. */}
+                    <circle
+                      r={Math.max(6, r + 2)}
+                      fill="transparent"
+                      stroke="none"
+                      pointerEvents="all"
+                      data-hit-target="true"
+                    />
                     {showNodeDotsEffective && (
                       <circle
                         r={branchEditActive ? Math.max(r + 1.5, isDisplayLeaf ? 4 : 3) : r}
@@ -3918,6 +4141,29 @@ export default function TreeEditor(){
                         stroke={circleStrokeColor}
                         strokeWidth={circleStrokeWidth}
                         data-base-fill={baseCircleFill}
+                      />
+                    )}
+                    {showHighlight && (isSimpleLeaf || isCollapsedLeaf) && (
+                      <rect
+                        x={textStartX - highlightPadX}
+                        y={labelBaselineY - highlightBandHeight / 2}
+                        width={highlightBandWidth}
+                        height={highlightBandHeight}
+                        rx={Math.min(4, highlightBandHeight / 3)}
+                        fill={highlightFill}
+                        fillOpacity={highlightFillOpacity}
+                        pointerEvents="none"
+                        data-label-highlight="true"
+                      />
+                    )}
+                    {selected && !showNodeDotsEffective && (
+                      // With dots hidden a selected node has no mark of its own,
+                      // so show one for as long as the selection lasts.
+                      <circle
+                        r={Math.max(4.5, r)}
+                        fill="#f59e0b"
+                        pointerEvents="none"
+                        data-selection-dot="true"
                       />
                     )}
                     {isCollapsedLeaf && collapsedMetrics && (
@@ -3942,11 +4188,6 @@ export default function TreeEditor(){
                         className={labelClasses}
                         dominantBaseline="middle"
                         alignmentBaseline="middle"
-                        stroke={showHighlight ? highlightStroke : undefined}
-                        strokeWidth={showHighlight ? highlightStrokeWidth : undefined}
-                        strokeLinejoin={showHighlight ? "round" : undefined}
-                        paintOrder={showHighlight ? "stroke fill" : undefined}
-                        data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                       >
                         {displayLabelText}
@@ -3961,11 +4202,6 @@ export default function TreeEditor(){
                         className={labelClasses}
                         dominantBaseline="middle"
                         alignmentBaseline="middle"
-                        stroke={showHighlight ? highlightStroke : undefined}
-                        strokeWidth={showHighlight ? highlightStrokeWidth : undefined}
-                        strokeLinejoin={showHighlight ? "round" : undefined}
-                        paintOrder={showHighlight ? "stroke fill" : undefined}
-                        data-label-highlight={showHighlight ? "true" : undefined}
                         style={shouldItalicize ? { fontStyle: "italic" } : undefined}
                         pointerEvents="visiblePainted"
                         onMouseEnter={(e)=>{ if(collapsedTitle) showCollapsedTooltip(e, collapsedTitle); }}
@@ -3975,13 +4211,25 @@ export default function TreeEditor(){
                         {displayLabelText}
                       </text>
                     )}
+                    {!n.d.parent && showBootstrap && getSupportValue(n.d.data) !== null && (
+                      <text
+                        x={bootstrapOffsetX}
+                        y={bootstrapOffsetY}
+                        fontSize={supportLabelSize}
+                        textAnchor="end"
+                        className="fill-slate-500 select-none"
+                      >
+                        {getSupportValue(n.d.data)}
+                      </text>
+                    )}
                     {!isDisplayLeaf && showNodeLabels && (
                       <text
                         x={nodeLabelOffsetX}
                         y={nodeLabelOffsetY}
                         fontSize={nodeLabelSize}
                         textAnchor="end"
-                        className="fill-gray-500 select-none"
+                        fill={nodeColor || '#6b7280'}
+                        className="select-none"
                       >
                         {n.d.data.name||''}
                       </text>
