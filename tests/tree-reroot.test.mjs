@@ -197,7 +197,7 @@ test('splitting an edge to add a leaf does not invent support for the new split'
 test('an unreadable support comment is skipped, not treated as a broken file', () => {
   // Any other unrecognised comment is ignored, and a third-party annotation using
   // this spelling must not cost the reader the whole tree.
-  const tree = parse('((A:1,B:1)[&support=90%]:2,(C:1,D:1)[&&NHX:B=70]:2);');
+  const tree = parse('((A:1,B:1)[&support=90%]:2,(C:1,D:1)[&&NHX:S=Aves:D=N]:2);');
   assert.deepEqual(tipNames(tree), ['A', 'B', 'C', 'D']);
   assert.equal(byTips(tree, ['A', 'B']).support, undefined);
   assert.equal(byTips(tree, ['C', 'D']).support, undefined);
@@ -282,4 +282,47 @@ test('repeated node-mode reroots preserve values including one on an earlier roo
     assert.equal(parse(toNewick(moved)).support, moved.support);
   }
   assert.ok(d3.hierarchy(moved).leaves().every(tip => tip.data.support === undefined));
+});
+
+test('edge support written as a bare comment beside the branch length is read', () => {
+  // The shape MAFFT's server emits, reported as unsupported.
+  const tree = parse('((1:0.0095,(3:0.0822,4:0.3734):0.0909[96]):0.0056[45],2:0.1035,5:0.0593);');
+  assert.equal(byTips(tree, ['3', '4']).support, '96');
+  assert.equal(byTips(tree, ['1', '3', '4']).support, '45');
+  assert.equal(byTips(tree, ['3', '4']).name, undefined);
+  near(byTips(tree, ['3', '4']).length, 0.0909);
+  // The same value ahead of the length reads identically.
+  const before = parse('((1:0.0095,(3:0.0822,4:0.3734)[96]:0.0909)[45]:0.0056,2:0.1035,5:0.0593);');
+  assert.equal(toNewick(before), toNewick(tree));
+  // Rerooting keeps each value with its split, as for any other edge support.
+  const moved = collapseUnaryInPlace(rerootAt(tree, byTips(tree, ['3', '4'])));
+  unchangedBiology(tree, moved);
+});
+
+test('bracketed metadata is not mistaken for support', () => {
+  // NHX and BEAST annotations start with &, so they stay comments.
+  const nhx = parse('((A:1,B:1)[&&NHX:S=Hominini:D=N]:2,(C:1,D:1)[&rate=0.5,height=1.2]:2);');
+  for (const node of nodes(nhx).slice(1)) assert.equal(node.support, undefined);
+  // A comment on the root cannot be support: the root has no parent edge.
+  const rooted = parse('((A:1,B:1):2,(C:1,D:1):2)[45];');
+  assert.equal(rooted.support, undefined);
+});
+
+test('NHX bootstrap and BEAST posterior are read as edge support', () => {
+  // Ensembl Compara / Notung style.
+  const nhx = parse('((A:1,B:1)[&&NHX:B=95:S=Hominini:D=N]:2,(C:1,D:1)[&&NHX:S=Aves:D=N]:2);');
+  assert.equal(byTips(nhx, ['A', 'B']).support, '95');
+  assert.equal(byTips(nhx, ['C', 'D']).support, undefined, 'no B= means no support');
+  // TreeAnnotator style, including a key that is not first and braces holding commas.
+  const beast = parse('((A:1,B:1)[&posterior=0.99,height_95%_HPD={1.0,1.4}]:2,(C:1,D:1)[&height=1.2,posterior=0.87]:2);');
+  assert.equal(byTips(beast, ['A', 'B']).support, '0.99');
+  assert.equal(byTips(beast, ['C', 'D']).support, '0.87');
+  // Other annotations stay unread, and a non-numeric value is not support.
+  const other = parse('((A:1,B:1)[&rate=0.5,height=1.2]:2,(C:1,D:1)[&&NHX:B=yes]:2);');
+  for (const node of nodes(other).slice(1)) assert.equal(node.support, undefined);
+  // The root carries posterior=1 in BEAST output but has no parent edge.
+  assert.equal(parse('((A:1,B:1)[&posterior=0.9]:2,C:1)[&posterior=1.0];').support, undefined);
+  // The spellings PhyloWeaver writes itself keep priority.
+  assert.equal(byTips(parse('((A:1,B:1)[&support=95]:2,C:1,D:1);'), ['A', 'B']).support, '95');
+  assert.equal(byTips(parse('((A:1,B:1)90[&nodeLabel]:2,C:1,D:1);'), ['A', 'B']).name, '90');
 });

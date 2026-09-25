@@ -23,7 +23,7 @@ type ScaleBarLabelPosition =
 type ScaleBarCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type SupportLabelPosition = "branch" | "node";
 type SupportInterpretation = "branch" | "node";
-const NODE_LABEL_OFFSET = { x: -4, y: 14 };
+const NODE_LABEL_OFFSET = { x: -4, y: 17 };
 const SUPPORT_LABEL_OFFSETS: Record<SupportLabelPosition, { x: number; y: number }> = {
   branch: { x: 0, y: -18 },
   node: { x: -4, y: -6 },
@@ -415,6 +415,16 @@ function ColorSelector({ selectedColor, onSelect, compact = false }: ColorSelect
   );
 }
 /** ---------- NEWICK ---------- */
+// NHX (Ensembl Compara, Notung) records bootstrap as B=, and BEAST's
+// TreeAnnotator records the clade posterior as posterior=. Both sit among other
+// annotations that stay unread, and both may be separated by : or , depending on
+// the dialect. Values inside {...}, such as an HPD interval, are not keys.
+function annotationSupport(comment: string): string | null {
+  const key = /^&&NHX(?::|$)/.test(comment) ? "B" : "posterior";
+  const found = new RegExp(`(?:^|[:,&])\\s*${key}\\s*=\\s*([^,:\\]}\\s]+)`).exec(comment);
+  return found ? parseSupportValue(found[1]) : null;
+}
+
 function parseSupportValue(label: string): string | null {
   const value = label.trim();
   const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
@@ -463,6 +473,16 @@ function parseNewick(newick: string): TreeNode {
         const match = /^&support\s*=\s*(.+)$/.exec(comment);
         if (match) {
           const support = parseSupportValue(match[1]);
+          if (support !== null) node.support = support;
+        } else if (comment.startsWith("&") && !isRoot) {
+          const support = annotationSupport(comment);
+          if (support !== null) node.support = support;
+        } else if (!isRoot) {
+          // Some writers, MAFFT among them, put edge support in a bare comment
+          // beside the branch length: ...(3:0.08,4:0.37):0.09[96]. Anything
+          // starting with & is NHX/BEAST metadata and stays a comment. The root
+          // has no parent edge, so a comment there cannot be support.
+          const support = parseSupportValue(comment);
           if (support !== null) node.support = support;
         }
         i = end + 1;
