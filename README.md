@@ -15,7 +15,8 @@ https://yawak.jp/PhyloWeaver/
   - Reroot trees
   - Flip subtrees
   - Add / delete leaves
-  - Edit leaf labels / branch length 
+  - Collapse / expand clades, and name a collapsed clade
+  - Edit leaf labels, internal node labels / branch length 
 - **Two layout modes**
   - Phylogram (branch lengths)
   - Cladogram (equal branch lengths)
@@ -34,11 +35,42 @@ PhyloWeaver can also load a tree directly from a URL query parameter.
 If a URL of the form
 
 ```text
-https://yawak.jp/PhyloWeaver/?newick=((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4)88/0.92:0.5);
+https://yawak.jp/PhyloWeaver/?newick=((A:0.1,B:0.2)95/0.98:0.3,(C:0.3,D:0.4):0.5);
 ```
 is opened in the browser, the newick parameter is decoded and used as the initial tree.
 
+### Loading tree files and species colors
 
+For large trees, pass a file URL instead of putting the NEWICK contents in the URL:
+
+```text
+https://example.org/PhyloWeaver/?newickUrl=/results/tree.nwk&colorsUrl=/results/species-colors.txt
+```
+
+This is an example deployment URL; replace both file paths with the files for the current result.
+Both files must be served from the same origin (scheme, host, and port) as PhyloWeaver, without redirects. Relative paths resolve against the PhyloWeaver page URL. The browser downloads these files and processes them locally; no tree data is uploaded.
+
+- `newickUrl`: NEWICK file URL. Takes precedence over `newick` if both are provided.
+- `colorsUrl`: optional species color table URL; also works with inline `newick`.
+- `showSupport=1`: enable **Show support values** on startup. Omit it or use `showSupport=0` to start with support values hidden. This also works with inline `newick` or without a tree parameter. The checkbox remains editable after startup.
+- Build links with `URLSearchParams` so paths and inline NEWICK are correctly encoded.
+
+For a tree with bootstrap support values, append `&showSupport=1` to the example URL above. This only changes visibility; it does not calculate support values.
+
+Species color tables use the following format, including blank lines and `#` comments:
+
+```text
+# Mammals
+species_color: HOMSA 0xFF6600
+# Sauropsids
+species_color: MELGA 0xFF66FF
+```
+
+Leaf names are split on `_`; the second field is matched exactly, including case. For example, `11_HOMSA_ENSP00000296271` gets `#FF6600`. The color applies to the leaf label and node dot, not branches or internal nodes. Unmatched names (including `query` unless added to the table) retain their default color. Colors may use `0xRRGGBB` or `#RRGGBB`; the last entry wins for duplicate keys. Colors are applied on initial loading and are included in the editable tree history and image exports. Plain NEWICK export does not preserve colors.
+
+If either file cannot be read or the color table is malformed, an error appears in the Tree tab and the existing tree is retained.
+
+To deploy on your server, run `npm run build` and serve the **entire contents of `dist/`**, including `index.html`, CSS and assets, under `/PhyloWeaver/`. Copying only an `index-*.js` file is insufficient. To deploy at another path, build with `npm run build -- --base=/tools/PhyloWeaver/` (substitute the desired path).
 
 ## Supported formats
 
@@ -51,6 +83,7 @@ is opened in the browser, the newick parameter is decoded and used as the initia
 * **Build tool:** Vite
 * **Visualization:** D3.js
 * **Styling:** Tailwind CSS
+* **Tree regression checks:** `npm test`
 
 
 ## Citation
@@ -70,5 +103,3 @@ Your Newick files are **not uploaded**, **not stored**, and **never transmitted*
 
 This project is licensed under the **MIT License**.
 See the [LICENSE](LICENSE) file for details.
-
-

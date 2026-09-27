@@ -10,6 +10,7 @@ vite.config.ts
 node_modules
 dist
 dist-ssr
+*.tar.gz
 *.local
 AGENTS.md
 
@@ -31,3 +32,5 @@ src/assets/icons/Thumbs.db
 @eaDir/
 testtree/
 public/@eaDir
+
+.gitignore
