@@ -34,3 +34,6 @@ testtree/
 public/@eaDir
 
 .gitignore
+
+# JOSS manuscript drafts
+paper/
