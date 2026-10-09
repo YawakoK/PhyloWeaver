@@ -3,6 +3,7 @@
 //   viewer -> list : window.opener.reflectphyloweaver(tipNames)  toggles the sequences' checkboxes
 //                    (reflectphyloio, the Phylo.io entry point, is accepted as a fallback)
 //   list -> viewer : window.relaySelection({ "<seq no>": true|false, ... })  highlights tips
+//   list -> viewer : window.notifyphyloweaver()  the selection changed; re-read the checkboxes
 // The list page passes its window name as ?mafftList=<name> so that a viewer only talks to the list
 // that opened it when several selections run at once. Both windows must be served from the same
 // origin; nothing is sent over the network.
@@ -12,7 +13,10 @@ export type MafftHighlightMap = Record<string, boolean>;
 type ReflectFn = (names: string[]) => void;
 type MafftListWindow = Window & { reflectphyloweaver?: ReflectFn; reflectphyloio?: ReflectFn };
 
-export type MafftViewerWindow = Window & { relaySelection?: (map: MafftHighlightMap) => number | false };
+export type MafftViewerWindow = Window & {
+  relaySelection?: (map: MafftHighlightMap) => number | false;
+  notifyphyloweaver?: () => boolean;
+};
 
 function expectedListName(): string | null {
   if (typeof window === "undefined") return null;

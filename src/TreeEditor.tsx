@@ -919,31 +919,48 @@ export default function TreeEditor(){
   const [mafftHighlight, setMafftHighlight] = useState<Set<string>>(()=>new Set());
   const [mafftChecks, setMafftChecks] = useState<MafftCheckState | null>(null);
   const mafftCheckSignatureRef = useRef("");
-  const refreshMafftChecks = useCallback(()=>{
+  const mafftConnectedRef = useRef(true);
+  const updateMafftConnection = useCallback(()=>{
     // Allow a few seconds for the list page to reload before treating the link as gone.
+    let connected = mafftConnectedRef.current;
     if(getMafftListWindow()){
       mafftMissedPollsRef.current = 0;
-      setMafftConnected(true);
+      connected = true;
     }else if(++mafftMissedPollsRef.current >= 3){
-      setMafftConnected(false);
+      connected = false;
     }
+    // Setting the same value every second still re-rendered the whole tree now and then.
+    if(connected === mafftConnectedRef.current) return;
+    mafftConnectedRef.current = connected;
+    setMafftConnected(connected);
+  },[]);
+  const refreshMafftChecks = useCallback(()=>{
+    updateMafftConnection();
     const next = readMafftChecks();
     const signature = mafftCheckSignature(next);
     if(signature === mafftCheckSignatureRef.current) return;
     mafftCheckSignatureRef.current = signature;
     setMafftChecks(next);
-  },[]);
+  },[updateMafftConnection]);
   useEffect(()=>{
     if(!mafftOpenedFromList) return;
-    // The list page has no change notification, so poll its checkboxes.
+    // The checkboxes are re-read when the list page calls notifyphyloweaver() after its selection
+    // changes, when this window regains focus, and after our own clicks. Only the connection is
+    // polled, so a closed list window is noticed.
+    const viewer = window as MafftViewerWindow;
+    viewer.notifyphyloweaver = ()=>{
+      refreshMafftChecks();
+      return true;
+    };
     refreshMafftChecks();
-    const timer = window.setInterval(refreshMafftChecks, 1000);
+    const timer = window.setInterval(updateMafftConnection, 1000);
     window.addEventListener("focus", refreshMafftChecks);
     return ()=>{
       window.clearInterval(timer);
       window.removeEventListener("focus", refreshMafftChecks);
+      delete viewer.notifyphyloweaver;
     };
-  },[mafftOpenedFromList, refreshMafftChecks]);
+  },[mafftOpenedFromList, refreshMafftChecks, updateMafftConnection]);
   const newickWarning = useMemo(()=>{
     if(!rawText.trim()) return null;
     let open=0, close=0;
