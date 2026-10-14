@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
+import { getMafftListWindow, mafftCheckSignature, mafftHighlightKeys, mafftSequenceKey, readMafftChecks, sendSelectionToMafft, type MafftCheckState, type MafftViewerWindow } from "./mafftBridge";
 import SearchIconSvg from "./assets/icons/Search.svg";
-import FullscreenIconSvg from "./assets/icons/Fullscreen.svg";
-import ExitIconSvg from "./assets/icons/Exit.svg";
 import LogoSvg from "./assets/icons/logo.svg";
 import CladogramIconSvg from "./assets/icons/Cladogram.svg";
 import PhylogramIconSvg from "./assets/icons/Phylogram.svg";
@@ -83,7 +82,11 @@ type LayoutSnapshot = {
 // const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633] text-white text-base font-bold  transition-all duration-200 hover:bg-[#dba633] hover:shadow-xl active:translate-y-[1px] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#dba633]";
 const BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#b45309] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
 const SECONDARY_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-[#dba633]/10 text-[#b45309] border border-[#c28606] text-base font-bold transition-all duration-200 hover:bg-[#dba633]/30 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
-const PRIMARY_BLUE_BUTTON_CLASSES = "px-4 py-2 rounded-xl bg-white text-[#286699] border border-[#286699] text-base font-bold transition-all duration-200 hover:bg-[#286699]/10 hover:shadow-xl active:translate-y-[1px] focus:outline-none";
+// Compact toolbar floating over the tree canvas.
+const TOOLBAR_BUTTON_CLASSES = "h-8 rounded-lg px-3 text-sm font-bold transition-colors focus:outline-none active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-40";
+const TOOLBAR_AMBER_CLASSES = `${TOOLBAR_BUTTON_CLASSES} border border-[#c28606] bg-[#dba633]/10 text-[#b45309] hover:bg-[#dba633]/30`;
+const TOOLBAR_ICON_CLASSES = "flex h-8 w-8 items-center justify-center rounded-lg text-base font-bold text-slate-700 transition-colors hover:bg-[#dba633]/15 focus:outline-none active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-40";
+const TOOLBAR_MAFFT_CLASSES = `${TOOLBAR_BUTTON_CLASSES} border border-sky-300 bg-white text-sky-700 hover:bg-sky-100`;
 const INPUT_CLASSES = "px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#286699] text-base placeholder-slate-400 text-slate-900";
 const COLOR_PRESETS = ["#ff4b00","#ff8082","#f6aa00","#03af7a","#4dc4ff","#005aff","#990099","#000000"];
 const HOMEPAGE_URL = "https://yawak.jp/PhyloWeaver/";
@@ -129,6 +132,15 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     loadExample: "Load example",
     uploadHelper: "Uploaded text appears below.",
     initialLoadFailed: "Could not load the initial tree or species colors:",
+    loadingInitialTree: "Loading tree…",
+    mafftLinked: "Linked to MAFFT",
+    mafftLinkedHint: "Click a node, branch or tip to select / unselect its sequences in the MAFFT list.",
+    mafftCheckboxHint: "Select / unselect this sequence in the MAFFT list",
+    mafftCheckboxMissing: "Not in the MAFFT list (deleted or not loaded yet)",
+    mafftSelectAll: "Select all",
+    mafftUnselectAll: "Unselect all",
+    mafftInvertSelection: "Invert selection",
+    mafftBadge: "MAFFT",
     applyNewick: "Apply NEWICK",
     statsTitle: "Current tree stats",
     tips: "Leaves",
@@ -192,10 +204,12 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     fitViewHint: "Zoom and centre so the whole tree is visible. Spacing is left alone.",
     resetView: "Reset layout",
     resetViewHint: "Recompute branch width and row spacing for this tree, then fit it to the screen.",
-    dragNodesOn: "Drag nodes: ON",
-    dragNodesOff: "Drag nodes: OFF",
-    canvasOnlyOn: "Fullscreen",
-    canvasOnlyOff: "Exit fullscreen",
+    dragNodes: "Drag nodes",
+    dragNodesHint: "Drag a node to change its branch length (phylogram) or position (cladogram).",
+    undo: "Undo",
+    redo: "Redo",
+    collapseMenu: "Hide menu",
+    expandMenu: "Show menu",
     searchLeaves: "Search leaves",
     clear: "Clear",
     close: "Close",
@@ -237,6 +251,15 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     loadExample: "例を読み込む",
     uploadHelper: "読み込んだテキストは下に表示されます。",
     initialLoadFailed: "初期系統樹または種の色対応表を読み込めませんでした：",
+    loadingInitialTree: "系統樹を読み込み中…",
+    mafftLinked: "MAFFT と連携中",
+    mafftLinkedHint: "ノード・枝・Tip をクリックすると、MAFFT のリストで配下の配列を選択／選択解除します。",
+    mafftCheckboxHint: "MAFFT のリストでこの配列を選択／選択解除",
+    mafftCheckboxMissing: "MAFFT のリストにありません（削除済みまたは未読み込み）",
+    mafftSelectAll: "すべて選択",
+    mafftUnselectAll: "すべて解除",
+    mafftInvertSelection: "選択を反転",
+    mafftBadge: "MAFFT",
     applyNewick: "NEWICKを適用",
     statsTitle: "現在の系統樹情報",
     tips: "葉",
@@ -300,10 +323,12 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     fitViewHint: "ツリー全体が見えるようにズームと位置だけを調整します。間隔は変わりません。",
     resetView: "レイアウトをリセット",
     resetViewHint: "横幅スケールと上下間隔をこのツリーに合わせて再計算し、画面に合わせます。",
-    dragNodesOn: "ノードドラッグ: ON",
-    dragNodesOff: "ノードドラッグ: OFF",
-    canvasOnlyOn: "全画面",
-    canvasOnlyOff: "全画面終了",
+    dragNodes: "ノードドラッグ",
+    dragNodesHint: "ノードをドラッグして枝長（フィログラム）や位置（クラドグラム）を変えます。",
+    undo: "元に戻す",
+    redo: "やり直す",
+    collapseMenu: "メニューを閉じる",
+    expandMenu: "メニューを開く",
     searchLeaves: "葉を検索",
     clear: "クリア",
     close: "閉じる",
@@ -540,6 +565,10 @@ function resolveCollapsedLabel(node: TreeNode, count: number): string {
 function getSupportValue(node: TreeNode): string | null {
   return node.support ?? null;
 }
+
+// Checkbox drawn before each tip label while linked to MAFFT, in units of the label font size.
+const MAFFT_CHECKBOX_SIZE = 0.8;
+const MAFFT_CHECKBOX_ADVANCE = 1.2;
 
 const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o)) as T;
 function collectTips(node: TreeNode, arr: TreeNode[] = []): TreeNode[] {
@@ -845,10 +874,93 @@ async function fetchInitialText(path: string, signal: AbortSignal) {
   return text;
 }
 
+type InitialSetup = {
+  newickUrl: string | null;
+  colorsUrl: string | null;
+  inlineNewick: string | null;
+  pending: boolean;
+  text: string;
+  tree: TreeNode;
+  error: string | null;
+};
+
+// Resolve ?newick= synchronously so the first paint already shows the requested tree.
+// Remote files (?newickUrl= / ?colorsUrl=) are fetched after mount while the canvas shows a loading state.
+function readInitialSetup(example: string): InitialSetup {
+  const params = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  // URLSearchParams already decodes the inline NEWICK, including literal '+' encoded as %2B.
+  const inlineNewick = params.get("newick");
+  const newickUrl = params.get("newickUrl");
+  const colorsUrl = params.get("colorsUrl");
+  const pending = Boolean(newickUrl || (inlineNewick && colorsUrl));
+  const base = { newickUrl, colorsUrl, inlineNewick, pending };
+  if (inlineNewick && !pending) {
+    try {
+      return { ...base, text: inlineNewick, tree: ensureIds(parseNewick(inlineNewick)), error: null };
+    } catch (err) {
+      return { ...base, text: inlineNewick, tree: ensureIds(parseNewick(example)), error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return { ...base, text: pending ? "" : example, tree: ensureIds(parseNewick(example)), error: null };
+}
+
 export default function TreeEditor(){
   const EXAMPLE="(((A:0.2,B:0.25)95/0.98:0.1,(C:0.2,D:0.25)88/0.92:0.15):0.15,E:0.55);";
-  const [rawText,setRawText]=useState(EXAMPLE);
-  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
+  const [initialSetup] = useState(()=>readInitialSetup(EXAMPLE));
+  const [rawText,setRawText]=useState(initialSetup.text);
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(initialSetup.error);
+  const [initialTreePending, setInitialTreePending] = useState(initialSetup.pending);
+  // Opened from the MAFFT sequence list page (see mafftBridge.ts).
+  const [mafftOpenedFromList] = useState(()=>getMafftListWindow() !== null);
+  // Falls back to the normal viewer once the list window has been closed or navigated away.
+  const [mafftConnected, setMafftConnected] = useState(true);
+  const mafftLinked = mafftOpenedFromList && mafftConnected;
+  const mafftMissedPollsRef = useRef(0);
+  const [mafftHighlight, setMafftHighlight] = useState<Set<string>>(()=>new Set());
+  const [mafftChecks, setMafftChecks] = useState<MafftCheckState | null>(null);
+  const mafftCheckSignatureRef = useRef("");
+  const mafftConnectedRef = useRef(true);
+  const updateMafftConnection = useCallback(()=>{
+    // Allow a few seconds for the list page to reload before treating the link as gone.
+    let connected = mafftConnectedRef.current;
+    if(getMafftListWindow()){
+      mafftMissedPollsRef.current = 0;
+      connected = true;
+    }else if(++mafftMissedPollsRef.current >= 3){
+      connected = false;
+    }
+    // Setting the same value every second still re-rendered the whole tree now and then.
+    if(connected === mafftConnectedRef.current) return;
+    mafftConnectedRef.current = connected;
+    setMafftConnected(connected);
+  },[]);
+  const refreshMafftChecks = useCallback(()=>{
+    updateMafftConnection();
+    const next = readMafftChecks();
+    const signature = mafftCheckSignature(next);
+    if(signature === mafftCheckSignatureRef.current) return;
+    mafftCheckSignatureRef.current = signature;
+    setMafftChecks(next);
+  },[updateMafftConnection]);
+  useEffect(()=>{
+    if(!mafftOpenedFromList) return;
+    // The checkboxes are re-read when the list page calls notifyphyloweaver() after its selection
+    // changes, when this window regains focus, and after our own clicks. Only the connection is
+    // polled, so a closed list window is noticed.
+    const viewer = window as MafftViewerWindow;
+    viewer.notifyphyloweaver = ()=>{
+      refreshMafftChecks();
+      return true;
+    };
+    refreshMafftChecks();
+    const timer = window.setInterval(updateMafftConnection, 1000);
+    window.addEventListener("focus", refreshMafftChecks);
+    return ()=>{
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshMafftChecks);
+      delete viewer.notifyphyloweaver;
+    };
+  },[mafftOpenedFromList, refreshMafftChecks, updateMafftConnection]);
   const newickWarning = useMemo(()=>{
     if(!rawText.trim()) return null;
     let open=0, close=0;
@@ -859,8 +971,9 @@ export default function TreeEditor(){
     if(open===close) return null;
     return `Parentheses mismatch in NEWICK string.\nFound ${open} "(" and ${close} ")".`;
   },[rawText]);
-  const [tree,setTree]=useState<TreeNode>(()=>ensureIds(parseNewick(EXAMPLE)));
-  const initialTreeRef = useRef(tree);
+  const [tree,setTree]=useState<TreeNode>(initialSetup.tree);
+  // Hide the placeholder tree until the URL-specified tree arrives, unless the user replaces it first.
+  const showInitialLoading = initialTreePending && tree === initialSetup.tree;
   const [lang,setLang]=useState<Locale>("en");
   const t = useCallback((key: string, fallback: string)=> UI_TEXT[lang]?.[key] ?? fallback,[lang]);
   const [historyStack, setHistoryStack] = useState<TreeNode[]>([]);
@@ -894,7 +1007,8 @@ export default function TreeEditor(){
   );
   const [showNodeDots,setShowNodeDots]=useState(false);
   const [branchEditMode,setBranchEditMode]=useState(false);
-  const [canvasOnlyMode,setCanvasOnlyMode]=useState(false);
+  // Starts collapsed when picking sequences for MAFFT, where the tree is what matters.
+  const [leftPaneCollapsed,setLeftPaneCollapsed]=useState(mafftOpenedFromList);
   const [leftPaneRatio,setLeftPaneRatio]=useState(0.26);
   const [leftPaneWidth,setLeftPaneWidth]=useState<number | null>(null);
   const [containerWidth,setContainerWidth]=useState<number | null>(null);
@@ -925,6 +1039,21 @@ export default function TreeEditor(){
   const [regexError,setRegexError]=useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"data" | "selection" | "rendering" | "export">("data");
   const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
+  // The toolbar floats over the canvas; its height (it wraps when narrow) is kept clear when fitting.
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarHeight, setToolbarHeight] = useState(44);
+  useEffect(()=>{
+    const el = toolbarRef.current;
+    if(!el) return;
+    const measure = ()=>{
+      const h = Math.round(el.getBoundingClientRect().height);
+      setToolbarHeight(prev=> prev === h ? prev : h);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return ()=>ro.disconnect();
+  },[]);
   const searchPopoverRef = useRef<HTMLDivElement | null>(null);
   const selectionMenuRef = useRef<HTMLDivElement | null>(null);
   const miniWindowMouseDownInsideRef = useRef(false);
@@ -937,7 +1066,6 @@ export default function TreeEditor(){
   const [newickCopyState,setNewickCopyState]=useState<"idle"|"copied"|"error">("idle");
   const cladogramDomainRef = useRef(1);
   const suppressClickRef = useRef(false);
-  const newickQueryAppliedRef = useRef(false);
   const tipCount = useMemo(()=>collectTips(tree).length, [tree]);
   const currentNewick = useMemo(()=>toNewick(tree, { includeLengths: layout!=="cladogram" }),[tree, layout]);
   const [currentNewickEditable,setCurrentNewickEditable]=useState(currentNewick);
@@ -1084,6 +1212,37 @@ export default function TreeEditor(){
     mapTipNames(tree, map);
     return map;
   },[tree]);
+  const sendSubtreeToMafft = useCallback((nodeId: number)=>{
+    if(!mafftLinked) return;
+    const names = tipNamesById.get(nodeId);
+    if(names?.length && sendSelectionToMafft(names)) refreshMafftChecks();
+  },[mafftLinked, tipNamesById, refreshMafftChecks]);
+  // MAFFT toggles a whole group (all checked -> uncheck, otherwise check), so send only the
+  // tips whose state should flip.
+  const applyMafftBulkSelection = useCallback((mode: "select" | "unselect" | "invert")=>{
+    const state = readMafftChecks();
+    if(!state) return;
+    const checkedNames: string[] = [];
+    const uncheckedNames: string[] = [];
+    for(const tip of collectTips(latestTreeRef.current)){
+      const key = mafftSequenceKey(tip.name);
+      if(!state.present.has(key)) continue;
+      (state.checked.has(key) ? checkedNames : uncheckedNames).push(tip.name ?? "");
+    }
+    if(mode !== "select" && checkedNames.length) sendSelectionToMafft(checkedNames);
+    if(mode !== "unselect" && uncheckedNames.length) sendSelectionToMafft(uncheckedNames);
+    refreshMafftChecks();
+  },[refreshMafftChecks]);
+  useEffect(()=>{
+    // Left undefined while the tree is loading so the list page keeps retrying.
+    if(!mafftLinked || initialTreePending) return;
+    const viewer = window as MafftViewerWindow;
+    viewer.relaySelection = (map)=>{
+      setMafftHighlight(mafftHighlightKeys(map));
+      return Math.max(1, tipCount);
+    };
+    return ()=>{ delete viewer.relaySelection; };
+  },[mafftLinked, initialTreePending, tipCount]);
   const displayTree = useMemo<TreeNode>(()=> {
     function cloneNode(n: TreeNode): TreeNode {
       const copy: TreeNode = { ...n };
@@ -1144,24 +1303,6 @@ export default function TreeEditor(){
       draggable={false}
     />
   );
-  const IconFullscreen = () => (
-    <img
-      src={FullscreenIconSvg}
-      alt="Fullscreen"
-      className="h-6 w-6 select-none pointer-events-none"
-      aria-hidden="true"
-      draggable={false}
-    />
-  );
-  const IconExit = () => (
-    <img
-      src={ExitIconSvg}
-      alt="Exit fullscreen"
-      className="h-6 w-6 select-none pointer-events-none"
-      aria-hidden="true"
-      draggable={false}
-    />
-  );
   const IconLayoutPhylo = ({ active }: { active: boolean }) => (
     <img
       src={PhylogramIconSvg}
@@ -1180,27 +1321,21 @@ export default function TreeEditor(){
       draggable={false}
     />
   );
-  const layoutContainerClass = canvasOnlyMode
-    ? "w-full flex-1 min-h-0 p-2 flex flex-nowrap gap-2 items-stretch"
-    : "w-full flex-1 min-h-0 px-2 sm:px-3 py-2 flex flex-nowrap gap-2 overflow-x-auto items-stretch";
+  const layoutContainerClass = "w-full flex-1 min-h-0 px-2 sm:px-3 py-2 flex flex-nowrap gap-2 overflow-x-auto items-stretch";
   const effectiveLeftRatio = (()=> {
     if(containerWidth && leftPaneWidth !== null){
       return Math.max(0.2, Math.min(0.7, leftPaneWidth / containerWidth));
     }
     return leftPaneRatio;
   })();
-  const rightPaneClass = canvasOnlyMode
-    ? "flex-1 min-w-0 p-2 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative"
-    : "flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative";
-  const rightPaneInlineStyle = canvasOnlyMode
-    ? { height:"100%" }
-    : {
-      height:"100%",
-      flexBasis: `${Math.max(30, Math.round((1 - effectiveLeftRatio) * 100))}%`,
-      flexGrow: 1
-    };
+  const rightPaneClass = "flex-1 min-w-[640px] p-4 bg-white rounded-xl shadow-lg border border-slate-100/80 overflow-auto relative";
+  const rightPaneInlineStyle = {
+    height:"100%",
+    flexBasis: `${Math.max(30, Math.round((1 - effectiveLeftRatio) * 100))}%`,
+    flexGrow: 1
+  };
   const leftPaneStyle = useMemo<React.CSSProperties>(()=> {
-    if(canvasOnlyMode) return {};
+    if(leftPaneCollapsed) return { flexBasis: 44, width: 44, flexShrink: 0, height: "100%" };
     if(leftPaneWidth !== null){
       return {
         flexBasis: `${leftPaneWidth}px`,
@@ -1226,7 +1361,7 @@ export default function TreeEditor(){
       height:"100%",
       maxHeight:"100%"
     };
-  },[canvasOnlyMode, leftPaneWidth, leftPaneRatio]);
+  },[leftPaneCollapsed, leftPaneWidth, leftPaneRatio]);
 
   // Horizontal scale width adjustable via UI
   const [xScaleWidth, setXScaleWidth] = useState(()=>1200);
@@ -1290,8 +1425,8 @@ export default function TreeEditor(){
       const widthPx = measureLabelWidth(name, leafLabelSize, italic);
       if(widthPx > max) max = widthPx;
     });
-    return max;
-  },[displayTree, leafLabelSize, italic, measureLabelWidth]);
+    return max + (mafftLinked ? leafLabelSize * MAFFT_CHECKBOX_ADVANCE : 0);
+  },[displayTree, leafLabelSize, italic, measureLabelWidth, mafftLinked]);
   const getCollapsedTriangleMetrics = useCallback((tipTotal?: number)=>{
     const safeCount = Number.isFinite(tipTotal) && tipTotal ? Math.max(1, Number(tipTotal)) : 1;
     const maxHeight = Math.max(leafLabelSize + 6, Math.min(Math.max(leafLabelSize * 1.5, 18), yGap * 0.8));
@@ -1389,41 +1524,51 @@ export default function TreeEditor(){
     commitTree(draft, { preserveZoom: true, skipHistory: options?.skipHistory ?? false });
   },[commitTree]);
 
+  const commitTreeRef = useRef(commitTree);
+  useEffect(()=>{ commitTreeRef.current = commitTree; },[commitTree]);
+
+  // Runs once on mount; reading commitTree through a ref keeps history updates from aborting the fetch.
   useEffect(()=>{
-    if(newickQueryAppliedRef.current) return;
-    if(typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const fromQuery = params.get("newick");
-    const newickUrl = params.get("newickUrl");
-    const colorsUrl = params.get("colorsUrl");
-    if(!fromQuery && !newickUrl) return;
+    if(!initialSetup.pending) return;
+    const { newickUrl, colorsUrl, inlineNewick } = initialSetup;
     const controller = new AbortController();
-    const startingTree = initialTreeRef.current;
     async function load() {
+      // A broken colour file should not cost the user the tree itself.
+      let colorsError: unknown = null;
       try {
-        // URLSearchParams already decodes the inline NEWICK, including literal '+' encoded as %2B.
         const [text, colors] = await Promise.all([
-          newickUrl ? fetchInitialText(newickUrl, controller.signal) : Promise.resolve(fromQuery!),
-          colorsUrl ? fetchInitialText(colorsUrl, controller.signal) : Promise.resolve(null),
+          newickUrl ? fetchInitialText(newickUrl, controller.signal) : Promise.resolve(inlineNewick!),
+          colorsUrl
+            ? fetchInitialText(colorsUrl, controller.signal).catch((err: unknown)=>{ colorsError = err; return null; })
+            : Promise.resolve(null),
         ]);
         if (controller.signal.aborted) return;
-        newickQueryAppliedRef.current = true;
         // Do not replace a tree the user edited while files were being fetched.
-        if (latestTreeRef.current !== startingTree) return;
+        if (latestTreeRef.current !== initialSetup.tree) return;
         const parsed = ensureIds(parseNewick(text));
-        if (colors !== null) applySpeciesColors(parsed, colors);
+        if (colors !== null) {
+          try { applySpeciesColors(parsed, colors); } catch (err) { colorsError = err; }
+        }
+        if (colorsError !== null) {
+          setInitialLoadError(colorsError instanceof Error ? colorsError.message : String(colorsError));
+        }
         setRawText(text);
-        commitTree(parsed);
-        setActiveTab("data");
+        commitTreeRef.current(parsed, { skipHistory: true });
+        // The placeholder tree is not a meaningful undo target.
+        setHistoryStack([clone(parsed)]);
+        setHistoryIndex(0);
       } catch (err) {
         if (controller.signal.aborted) return;
-        newickQueryAppliedRef.current = true;
         setInitialLoadError(err instanceof Error ? err.message : String(err));
+        setRawText(prev=> prev ? prev : EXAMPLE);
+      } finally {
+        if (!controller.signal.aborted) setInitialTreePending(false);
       }
     }
     void load();
     return () => controller.abort();
-  },[commitTree, setActiveTab, setRawText]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
 
   // Layout computation
@@ -1591,7 +1736,7 @@ export default function TreeEditor(){
     );
     const barElement = <div className="h-[2px] bg-slate-700" style={{ width: scale.px }} />;
     return (
-      <div className="pointer-events-none absolute left-6 top-4 z-30 bg-transparent px-3 py-2 rounded-xl border border-transparent text-slate-700">
+      <div data-scale-bar="true" className="pointer-events-none absolute left-6 top-4 z-30 bg-transparent px-3 py-2 rounded-xl border border-transparent text-slate-700">
         <div className={`flex flex-col gap-1 ${scaleBarPlacement.htmlAlignClass}`}>
           {scaleBarPlacement.vertical === "top" ? labelElement : barElement}
           {scaleBarPlacement.vertical === "top" ? barElement : labelElement}
@@ -1764,7 +1909,7 @@ export default function TreeEditor(){
     return ()=>{
       svg.on(".zoom", null);
     };
-  },[baseTranslateX, baseTranslateY, branchEditMode, canvasOnlyMode]);
+  },[baseTranslateX, baseTranslateY, branchEditMode]);
 
   // Observe right pane size (used for manual resets)
 
@@ -1779,6 +1924,11 @@ export default function TreeEditor(){
   const fitToViewport = useCallback(()=>{
     const svgNode=svgRef.current; if(!svgNode||!zoomRef.current) return;
     const pad=60;
+    // Keep the tree clear of the floating toolbar and of the scale bar below it.
+    const svgTop = svgNode.getBoundingClientRect().top;
+    const overlays = [toolbarRef.current, svgNode.parentElement?.querySelector("[data-scale-bar]") ?? null];
+    const overlayBottom = Math.max(0, ...overlays.map(el=> el ? el.getBoundingClientRect().bottom - svgTop : 0));
+    const topPad=Math.max(pad, Math.ceil(overlayBottom) + 16);
     const size = paneSizeRef.current;
     const svgW=svgNode.clientWidth||size.w;
     const rawSvgH=svgNode.clientHeight||size.h;
@@ -1787,12 +1937,12 @@ export default function TreeEditor(){
     const miny=Math.min(yExtent[0],0), maxy=Math.max(yExtent[1],0);
     const gw=Math.max(1,maxx-minx), gh=Math.max(1,maxy-miny);
     const viewableWidth = Math.max(1, svgW - pad*2);
-    const viewableHeight = Math.max(1, svgH - pad*2);
+    const viewableHeight = Math.max(1, svgH - topPad - pad);
     const kx = viewableWidth / gw;
     const ky = viewableHeight / gh;
     const k = Math.max(1e-6, Math.min(kx, ky));
     const x=pad - baseTranslateX - k*minx;
-    const y=pad + treeViewYOffset - baseTranslateY - k*miny;
+    const y=topPad + treeViewYOffset - baseTranslateY - k*miny;
     const svgSelection = d3.select<SVGSVGElement, unknown>(svgNode);
     svgSelection
       .transition()
@@ -1964,7 +2114,12 @@ export default function TreeEditor(){
           h: Math.max(320, height - padY),
         };
         paneSizeRef.current = nextDimensions;
-        setPaneDimensions(nextDimensions);
+        // Keep the old object when the size is unchanged. A new object re-creates
+        // computeAutoHorizontalScale, which re-subscribes this observer, and observe()
+        // always reports once, so the page re-rendered in an endless loop while idle.
+        setPaneDimensions(prev=>
+          Math.abs(prev.w - nextDimensions.w) <= 0.5 && Math.abs(prev.h - nextDimensions.h) <= 0.5 ? prev : nextDimensions
+        );
         const recommended = computeAutoHorizontalScale();
         setAutoWidthHint(recommended);
         if(!userSetWidthRef.current){
@@ -2018,15 +2173,13 @@ export default function TreeEditor(){
     if(userAdjustedZoomRef.current) return;
     const id=requestAnimationFrame(fitToViewport);
     return ()=>cancelAnimationFrame(id);
-  },[canvasOnlyMode, fitToViewport]);
+  },[leftPaneCollapsed, fitToViewport]);
   useEffect(()=>{
-    if(canvasOnlyMode) return;
     if(userAdjustedZoomRef.current) return;
     const id=setTimeout(()=>fitToViewport(), 10);
     return ()=>clearTimeout(id);
-  },[fitToViewport, canvasOnlyMode, leftPaneRatio]);
+  },[fitToViewport, leftPaneRatio]);
   useEffect(()=>{
-    if(canvasOnlyMode) return;
     const container = layoutContainerRef.current;
     if(!container) return;
     const measure=()=>{
@@ -2046,7 +2199,7 @@ export default function TreeEditor(){
     const ro = new ResizeObserver(()=>measure());
     ro.observe(container);
     return ()=>ro.disconnect();
-  },[canvasOnlyMode, leftPaneRatio]);
+  },[leftPaneRatio]);
   useEffect(()=>{
     if(didInitialResetRef.current) return;
     didInitialResetRef.current = true;
@@ -2182,6 +2335,8 @@ export default function TreeEditor(){
     reader.readAsText(f);
   }
   function applyText(){
+    // parseNewick("") yields a single unnamed node; the box is also empty while a URL tree loads.
+    if(!rawText.trim()) return;
     if(newickWarning){
       alert(newickWarning);
       return;
@@ -2263,8 +2418,10 @@ export default function TreeEditor(){
       e.stopPropagation();
       return;
     }
+    sendSubtreeToMafft(n.d.data.__id);
     applySingleSelection(sel);
-    openMenuAt(e.clientX,e.clientY);
+    // The editing menu gets in the way of picking sequences for MAFFT.
+    if(!mafftLinked) openMenuAt(e.clientX,e.clientY);
     e.stopPropagation();
   }
   function onClickLink(l: PositionedLink, e: React.MouseEvent<SVGGElement, MouseEvent>){
@@ -2278,8 +2435,10 @@ export default function TreeEditor(){
       e.stopPropagation();
       return;
     }
+    sendSubtreeToMafft(childId);
     applySingleSelection(sel);
-    openMenuAt(e.clientX,e.clientY); e.stopPropagation();
+    if(!mafftLinked) openMenuAt(e.clientX,e.clientY);
+    e.stopPropagation();
   }
 
   const applyToSelectedLeaves = (mutator: (node: TreeNode)=>void)=>{
@@ -2615,8 +2774,13 @@ export default function TreeEditor(){
     const labelHighlights = group.querySelectorAll<SVGElement>('[data-label-highlight]');
     labelHighlights.forEach(el=>{ el.remove(); });
     // Hit targets are invisible but still count towards the exported bounding box.
-    const hitTargets = group.querySelectorAll<SVGElement>('[data-hit-target], [data-selection-dot]');
+    const hitTargets = group.querySelectorAll<SVGElement>('[data-hit-target], [data-selection-dot], [data-mafft-checkbox]');
     hitTargets.forEach(el=>{ el.remove(); });
+    // Labels shifted right to make room for MAFFT checkboxes go back to their normal position.
+    group.querySelectorAll<SVGElement>('[data-export-x]').forEach(el=>{
+      el.setAttribute('x', el.getAttribute('data-export-x') ?? '0');
+      el.removeAttribute('data-export-x');
+    });
   }
   const buildStandaloneSVGBlobWithScaleBar = useCallback((): { blob: Blob; width: number; height: number; viewBox: [number, number, number, number] } | null=>{
     const gNode=gRef.current; if(!gNode) return null;
@@ -2885,7 +3049,6 @@ export default function TreeEditor(){
               <button className={`${BUTTON_CLASSES} inline-flex items-center justify-center`} onClick={loadExample}>{t("loadExample","Load example")}</button>
             </div>
             <p className="text-sm text-slate-600">{t("uploadHelper","Uploaded text appears below.")}</p>
-            {initialLoadError && <p role="alert" className="text-sm text-red-700">{t("initialLoadFailed", "Could not load the initial tree or species colors:")} {initialLoadError}</p>}
             <div className="space-y-1">
               <textarea
                 className={`${INPUT_CLASSES} w-full h-20 resize-y ${newickWarning ? "border-red-500 focus:ring-red-400" : ""}`}
@@ -3680,14 +3843,39 @@ export default function TreeEditor(){
 
   return (
     <div
-      className={canvasOnlyMode ? "h-screen flex flex-col overflow-hidden bg-white text-slate-900" : "h-screen flex flex-col overflow-hidden bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"}
+      className="h-screen flex flex-col overflow-hidden bg-gradient-to-b from-[#f5f9ff] via-[#eef2ff] to-[#f8faff] text-slate-900"
       onMouseDownCapture={handleRootMouseDownCapture}
       onClick={handleRootClick}
     >
       <div className={layoutContainerClass} ref={layoutContainerRef}>
-        <div ref={leftPaneRef} className={canvasOnlyMode ? "hidden" : "relative flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"} style={leftPaneStyle}>
+        <div ref={leftPaneRef} className={leftPaneCollapsed ? "relative flex-shrink-0" : "relative flex-shrink-0 basis-[400px] max-w-[460px] min-w-[340px]"} style={leftPaneStyle}>
+          {leftPaneCollapsed ? (
+            <div className="flex h-full flex-col items-center gap-1 rounded-xl bg-white/95 py-2 shadow-xl">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-lg font-bold text-[#286699] hover:bg-[#e7ecf3]"
+                title={t("expandMenu","Show menu")}
+                aria-label={t("expandMenu","Show menu")}
+                onClick={(e)=>{ e.stopPropagation(); setLeftPaneCollapsed(false); }}
+              >
+                »
+              </button>
+              {tabs.map(tab=>(
+                <button
+                  key={tab.id}
+                  type="button"
+                  className="rounded-lg px-1 py-2 text-xs font-extrabold text-[#4b6786]/70 hover:bg-[#e7ecf3] hover:text-[#1f4870]"
+                  style={{ writingMode: "vertical-rl" }}
+                  onClick={(e)=>{ e.stopPropagation(); setActiveTab(tab.id); setLeftPaneCollapsed(false); }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ) : (
           <div className="relative flex h-full min-h-0 flex-col rounded-xl bg-white/95 shadow-xl overflow-hidden">
-            <div className="grid grid-cols-2 sm:grid-cols-4 text-center bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
+            <div className="flex bg-gradient-to-r from-[#f6f9fd] to-[#fffef8] border-b border-white/70">
+            <div className="grid flex-1 grid-cols-2 sm:grid-cols-4 text-center">
               {tabs.map(tab=>(
                 <button
                   key={tab.id}
@@ -3702,6 +3890,16 @@ export default function TreeEditor(){
                   {tab.label}
                 </button>
               ))}
+            </div>
+            <button
+              type="button"
+              className="-mb-px flex w-8 flex-shrink-0 items-center justify-center border-b-2 border-transparent bg-[#e7ecf3] text-lg font-bold text-[#4b6786]/70 hover:bg-white/60 hover:text-[#1f4870]"
+              title={t("collapseMenu","Hide menu")}
+              aria-label={t("collapseMenu","Hide menu")}
+              onClick={(e)=>{ e.stopPropagation(); hideContextMenu(); setLeftPaneCollapsed(true); }}
+            >
+              «
+            </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
               {renderTabContent()}
@@ -3742,7 +3940,8 @@ export default function TreeEditor(){
               </div>
             </div>
           </div>
-          {!canvasOnlyMode && (
+          )}
+          {!leftPaneCollapsed && (
             <div
               className="absolute top-0 right-0 h-full w-2 cursor-col-resize group"
               onMouseDown={(e)=>{
@@ -3783,40 +3982,79 @@ export default function TreeEditor(){
           onClick={handleCanvasBackgroundClick}
           style={rightPaneInlineStyle}
         >
-          <div className="flex h-full flex-col gap-4">
-            <div className="relative flex flex-col gap-3">
-              {layout==='phylogram' && (
-                <div className="absolute left-0 top-0 pointer-events-none z-30">
-                  <ScaleBarHTML totalLength={totalLength} zoomK={zoomK} />
+          <div className="flex h-full flex-col">
+            {/* The toolbar floats over the canvas so the whole pane stays available for the tree. */}
+            <div ref={toolbarRef} className="pointer-events-none absolute inset-x-4 top-3 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+                {mafftLinked && (
+                  <div className="flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50/95 p-1">
+                    <span
+                      className="px-2 text-xs font-extrabold uppercase tracking-wide text-sky-700"
+                      title={t("mafftLinkedHint","Click a node, branch or tip to select / unselect its sequences in the MAFFT list.")}
+                    >
+                      {t("mafftBadge","MAFFT")}
+                    </span>
+                    {([
+                      ["select", "mafftSelectAll", "Select all"],
+                      ["unselect", "mafftUnselectAll", "Unselect all"],
+                      ["invert", "mafftInvertSelection", "Invert selection"],
+                    ] as const).map(([mode, key, fallback])=>(
+                      <button
+                        key={mode}
+                        type="button"
+                        className={TOOLBAR_MAFFT_CLASSES}
+                        onClick={(e)=>{ e.stopPropagation(); applyMafftBulkSelection(mode); }}
+                      >
+                        {t(key, fallback)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {initialLoadError && (
+                <div role="alert" className="pointer-events-auto order-last flex basis-full items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <span className="flex-1">{t("initialLoadFailed", "Could not load the initial tree or species colors:")} {initialLoadError}</span>
+                  <button
+                    type="button"
+                    className="font-bold text-red-500 hover:text-red-700"
+                    aria-label={t("close","Close")}
+                    onClick={(e)=>{ e.stopPropagation(); setInitialLoadError(null); }}
+                  >
+                    ×
+                  </button>
                 </div>
               )}
-              <div className="flex flex-wrap items-end justify-end gap-2">
+              <div className="pointer-events-auto relative ml-auto flex flex-wrap items-center justify-end gap-2 rounded-xl bg-white/90 p-1">
                 <button
-                  className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
+                  className={TOOLBAR_ICON_CLASSES}
                   disabled={!canUndo}
-                  aria-label="Undo"
+                  aria-label={t("undo","Undo")}
+                  title={t("undo","Undo")}
                   onClick={(e)=>{ e.stopPropagation(); handleUndo(); }}
                 >
                   ↺
                 </button>
                 <button
-                  className={`${SECONDARY_BUTTON_CLASSES} text-base disabled:opacity-40 disabled:cursor-not-allowed`}
+                  className={TOOLBAR_ICON_CLASSES}
                   disabled={!canRedo}
-                  aria-label="Redo"
+                  aria-label={t("redo","Redo")}
+                  title={t("redo","Redo")}
                   onClick={(e)=>{ e.stopPropagation(); handleRedo(); }}
                 >
                   ↻
                 </button>
                 <button
                   type="button"
-                  className="relative flex h-12 w-12 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-700 transition hover:bg-[#dba633]/10 active:translate-y-[1px] focus:outline-none"
+                  className={`${TOOLBAR_ICON_CLASSES} ${searchPopoverOpen ? "bg-[#dba633]/20" : ""}`}
                   onClick={(e)=>{ e.stopPropagation(); setSearchPopoverOpen(v=>!v); }}
                   aria-label={t("searchLeaves","Search leaves")}
+                  title={t("searchLeaves","Search leaves")}
                 >
                   <IconSearch />
                 </button>
+                <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
                 <button
-                  className={`${BUTTON_CLASSES} text-base`}
+                  className={TOOLBAR_AMBER_CLASSES}
                   title={t("resetViewHint","Recompute branch width and row spacing for this tree, then fit it to the screen.")}
                   onClick={(e)=>{
                     e.stopPropagation();
@@ -3831,7 +4069,7 @@ export default function TreeEditor(){
                   {t("resetView","Reset layout")}
                 </button>
                 <button
-                  className={`${SECONDARY_BUTTON_CLASSES} text-base`}
+                  className={TOOLBAR_AMBER_CLASSES}
                   title={t("fitViewHint","Zoom and centre so the whole tree is visible. Spacing is left alone.")}
                   onClick={(e)=>{
                     e.stopPropagation();
@@ -3841,37 +4079,22 @@ export default function TreeEditor(){
                   {t("fitView","Fit to screen")}
                 </button>
                 <button
-                  className={`${BUTTON_CLASSES} text-base flex items-center gap-2`}
-                  onClick={(e)=>{
-                    e.stopPropagation();
-                    setCanvasOnlyMode(prev=>{
-                      const next=!prev;
-                      requestAnimationFrame(()=>fitToViewport());
-                      return next;
-                    });
-                    setMenu(prev=>prev.visible?{...prev,visible:false}:prev);
-                    setSearchPopoverOpen(false);
-                  }}
-                >
-                  {canvasOnlyMode ? <IconExit /> : <IconFullscreen />}
-                  <span className="sr-only">{canvasOnlyMode ? t("canvasOnlyOff","Exit fullscreen") : t("canvasOnlyOn","Fullscreen")}</span>
-                </button>
-                <button
-                  className={`${branchEditMode ? `${PRIMARY_BLUE_BUTTON_CLASSES} bg-[#286699]/10` : PRIMARY_BLUE_BUTTON_CLASSES} text-base`}
+                  type="button"
+                  role="switch"
+                  aria-checked={branchEditMode}
+                  className={`${TOOLBAR_BUTTON_CLASSES} border ${branchEditMode ? "border-[#286699] bg-[#286699] text-white hover:bg-[#1f4f78]" : "border-[#286699] bg-white text-[#286699] hover:bg-[#286699]/10"}`}
+                  title={t("dragNodesHint","Drag a node to change its branch length (phylogram) or position (cladogram).")}
                   onClick={(e)=>{
                     e.stopPropagation();
                     setBranchEditMode(v=>!v);
                   }}
                 >
-                  {branchEditMode ? t("dragNodesOn","Drag nodes: ON") : t("dragNodesOff","Drag nodes: OFF")}
+                  {t("dragNodes","Drag nodes")}
                 </button>
-              </div>
-              <div className="flex flex-wrap items-end justify-end gap-4">
-                <label className="flex items-center gap-3 text-[0.85rem] font-semibold text-slate-700">
-                  <span className="inline-flex items-center gap-2 uppercase tracking-wide text-[0.75rem] text-slate-600">
-                    <span className="text-lg font-extrabold text-[#286699] leading-none">↔</span>
-                    <span>Horizontal scale</span>
-                  </span>
+                <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
+                <label className="flex items-center gap-1.5 text-slate-700" title={t("horizontalScale","Horizontal scale")}>
+                  <span className="text-base font-extrabold leading-none text-[#286699]" aria-hidden="true">↔</span>
+                  <span className="sr-only">{t("horizontalScale","Horizontal scale")}</span>
                   <input
                     type="range"
                     min={0}
@@ -3879,15 +4102,13 @@ export default function TreeEditor(){
                     step={1}
                     value={horizontalScaleSliderPos}
                     onChange={(e)=>{ e.stopPropagation(); handleHorizontalScaleSliderPos(parseFloat(e.target.value)); }}
-                    className="w-40 accent-[#286699]"
+                    className="w-24 accent-[#286699]"
                   />
-                  <span className="text-slate-700 w-12 text-right text-sm">{Math.round(xScaleWidth)}</span>
+                  <span className="w-10 text-right text-xs tabular-nums">{Math.round(xScaleWidth)}</span>
                 </label>
-                <label className="flex items-center gap-3 text-[0.85rem] font-semibold text-slate-700">
-                  <span className="inline-flex items-center gap-2 uppercase tracking-wide text-[0.75rem] text-slate-600">
-                    <span className="text-lg font-extrabold text-[#286699] leading-none">↕</span>
-                    <span>Vertical spacing</span>
-                  </span>
+                <label className="flex items-center gap-1.5 text-slate-700" title={t("verticalSpacing","Vertical spacing")}>
+                  <span className="text-base font-extrabold leading-none text-[#286699]" aria-hidden="true">↕</span>
+                  <span className="sr-only">{t("verticalSpacing","Vertical spacing")}</span>
                   <input
                     type="range"
                     min={1}
@@ -3895,62 +4116,72 @@ export default function TreeEditor(){
                     step={2}
                     value={yGap}
                     onChange={(e)=>{ e.stopPropagation(); handleManualYGapChange(parseFloat(e.target.value)); }}
-                    className="w-40 accent-[#286699]"
+                    className="w-24 accent-[#286699]"
                   />
-                  <span className="text-slate-700 w-10 text-right text-sm">{Math.round(yGap)}</span>
+                  <span className="w-7 text-right text-xs tabular-nums">{Math.round(yGap)}</span>
                 </label>
-              </div>
-              {searchPopoverOpen && (
-                <div
-                  ref={searchPopoverRef}
-                  className="absolute right-0 top-16 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700"
-                  onClick={(e)=>{ e.stopPropagation(); miniWindowMouseDownInsideRef.current = false; }}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="font-semibold">{t("searchLeaves","Search leaves")}</span>
-                    <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>{t("close","Close")}</button>
-                  </div>
-                  <div className="space-y-3">
-                    <input
-                      className={`${INPUT_CLASSES} w-full`}
-                      placeholder={useRegex?"Enter regex pattern":"Leaf name contains..."}
-                      value={search}
-                      onChange={(e)=>setSearch(e.target.value)}
-                    />
-                    <label className="flex items-center gap-2 text-xs">
-                      <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
-                      {t("regex","Use regular expressions")}
-                    </label>
-                    {hasSearchMatches && (
-                      <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span>{searchPositionLabel}</span>
-                        <div className="flex gap-2">
-                          <button
-                            className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                            onClick={()=>handleSearchNavigate(-1)}
-                            disabled={!hasSearchMatches}
-                          >
-                            ←
-                          </button>
-                          <button
-                            className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                            onClick={()=>handleSearchNavigate(1)}
-                            disabled={!hasSearchMatches}
-                          >
-                            →
-                          </button>
+                {searchPopoverOpen && (
+                  <div
+                    ref={searchPopoverRef}
+                    className="absolute right-0 top-full mt-2 z-40 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl px-4 py-4 text-sm text-slate-700"
+                    onClick={(e)=>{ e.stopPropagation(); miniWindowMouseDownInsideRef.current = false; }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="font-semibold">{t("searchLeaves","Search leaves")}</span>
+                      <button className="text-xs text-slate-500" onClick={()=>setSearchPopoverOpen(false)}>{t("close","Close")}</button>
+                    </div>
+                    <div className="space-y-3">
+                      <input
+                        className={`${INPUT_CLASSES} w-full`}
+                        placeholder={useRegex?"Enter regex pattern":"Leaf name contains..."}
+                        value={search}
+                        onChange={(e)=>setSearch(e.target.value)}
+                      />
+                      <label className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" checked={useRegex} onChange={(e)=>{ setUseRegex(e.target.checked); }} />
+                        {t("regex","Use regular expressions")}
+                      </label>
+                      {hasSearchMatches && (
+                        <div className="flex items-center justify-between text-xs text-slate-600">
+                          <span>{searchPositionLabel}</span>
+                          <div className="flex gap-2">
+                            <button
+                              className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                              onClick={()=>handleSearchNavigate(-1)}
+                              disabled={!hasSearchMatches}
+                            >
+                              ←
+                            </button>
+                            <button
+                              className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[0.7rem] font-semibold text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                              onClick={()=>handleSearchNavigate(1)}
+                              disabled={!hasSearchMatches}
+                            >
+                              →
+                            </button>
+                          </div>
                         </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>{t("clear","Clear")}</button>
+                        {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
                       </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <button className={`${SECONDARY_BUTTON_CLASSES} text-xs`} onClick={()=>setSearch("")}>{t("clear","Clear")}</button>
-                      {regexError && <span className="text-xs text-[#a15b3c]">Regex error: {regexError}</span>}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             <div className="relative flex-1">
+              {layout==='phylogram' && (
+                <div className="pointer-events-none absolute left-0 z-20" style={{ top: toolbarHeight + 4 }}>
+                  <ScaleBarHTML totalLength={totalLength} zoomK={zoomK} />
+                </div>
+              )}
+              {showInitialLoading && (
+                <div role="status" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm text-slate-500">
+                  {t("loadingInitialTree","Loading tree…")}
+                </div>
+              )}
               <svg
                 ref={svgRef}
                 width={"100%"}
@@ -3961,7 +4192,9 @@ export default function TreeEditor(){
               >
                 <g ref={gRef}>
               {/* Edges */}
-              {links.map((link, idx)=>{
+              {/* Nothing is drawn while a URL tree loads: hidden SVG with pointer-events="all"
+                  would still be clickable, and exports would clone it. */}
+              {(showInitialLoading ? [] : links).map((link, idx)=>{
                 const source=link.source;
                 const target=link.target;
                 if(!source||!target) return null;
@@ -4059,7 +4292,7 @@ export default function TreeEditor(){
               })}
 
               {/* Nodes */}
-              {nodes.map((n,i)=>{
+              {(showInitialLoading ? [] : nodes).map((n,i)=>{
                 const nodeId = n.d.data.__id;
                 const baseSelected=nodeId !== undefined && selection?.type==='node' && selection?.id===nodeId;
                 const multiSelected = nodeId !== undefined && multiSelectionKeySet.has(nodeSelectionKey(nodeId));
@@ -4085,6 +4318,10 @@ export default function TreeEditor(){
                 const collapsedMetrics = isCollapsedLeaf ? getCollapsedTriangleMetrics(collapsedTipCount) : null;
                 const collapsedWidth = collapsedMetrics?.width ?? 0;
                 const textStartX = collapsedWidth + labelPadding;
+                const mafftKey = mafftLinked && isSimpleLeaf ? mafftSequenceKey(n.d.data.name) : "";
+                const showMafftCheckbox = mafftKey !== "";
+                const mafftCheckboxPresent = Boolean(mafftChecks?.present.has(mafftKey));
+                const mafftCheckboxChecked = Boolean(mafftChecks?.checked.has(mafftKey));
                 const rawName = n.d.data.name ?? "";
                 const trimmedName = rawName.trim();
                 const collapsedLabelText = isCollapsedLeaf ? resolveCollapsedLabel(n.d.data, collapsedTipCount ?? 0) : "";
@@ -4110,14 +4347,19 @@ export default function TreeEditor(){
                 const labelBold = isSimpleLeaf && Boolean(n.d.data.__labelBold);
                 const selectedLeaf = selected && (isSimpleLeaf || isCollapsedLeaf);
                 const searchHighlight = isSearchHit && (isSimpleLeaf || isCollapsedLeaf);
+                const mafftHit = mafftHighlight.size > 0 && (
+                  isSimpleLeaf
+                    ? mafftHighlight.has(mafftSequenceKey(n.d.data.name))
+                    : (isCollapsedLeaf && Boolean(collapsedLeafNames?.some(name=>mafftHighlight.has(mafftSequenceKey(name)))))
+                );
                 const highlightMode = isActiveSearchTarget
                   ? "search-active"
-                  : (searchHighlight ? "search" : (selectedLeaf ? "selection" : null));
+                  : (searchHighlight ? "search" : (mafftHit ? "mafft" : (selectedLeaf ? "selection" : null)));
                 const showHighlight = highlightMode !== null;
                 const highlightFill = highlightMode === "selection"
                   ? "#f59e0b"
-                  : (highlightMode === "search-active" ? "#fb923c" : "#fbd45f");
-                const highlightFillOpacity = highlightMode === "selection" ? 0.38 : (highlightMode === "search-active" ? 0.45 : 0.5);
+                  : (highlightMode === "mafft" ? "#38bdf8" : (highlightMode === "search-active" ? "#fb923c" : "#fbd45f"));
+                const highlightFillOpacity = highlightMode === "selection" ? 0.38 : (highlightMode === "search" ? 0.5 : 0.45);
                 const labelClasses = [
                   "select-none",
                   labelBold ? "font-bold" : "",
@@ -4125,6 +4367,8 @@ export default function TreeEditor(){
                 ].filter(Boolean).join(" ");
                 const highlightFontSize = isCollapsedLeaf ? leafLabelSize : labelFontSize;
                 const highlightPadX = Math.max(2, highlightFontSize * 0.2);
+                const mafftCheckboxSize = labelFontSize * MAFFT_CHECKBOX_SIZE;
+                const labelX = showMafftCheckbox ? textStartX + labelFontSize * MAFFT_CHECKBOX_ADVANCE : textStartX;
                 const highlightBandHeight = highlightFontSize * 1.35;
                 const highlightBandWidth = showHighlight
                   ? measureLabelWidth(displayLabelText, highlightFontSize, shouldItalicize, labelBold) + highlightPadX * 2
@@ -4165,7 +4409,7 @@ export default function TreeEditor(){
                     )}
                     {showHighlight && (isSimpleLeaf || isCollapsedLeaf) && (
                       <rect
-                        x={textStartX - highlightPadX}
+                        x={labelX - highlightPadX}
                         y={labelBaselineY - highlightBandHeight / 2}
                         width={highlightBandWidth}
                         height={highlightBandHeight}
@@ -4199,9 +4443,43 @@ export default function TreeEditor(){
                         onMouseLeave={hideCollapsedTooltip}
                       />
                     )}
+                    {showMafftCheckbox && (
+                      <g
+                        data-mafft-checkbox="true"
+                        transform={`translate(${textStartX},${labelBaselineY - mafftCheckboxSize / 2})`}
+                        opacity={mafftCheckboxPresent ? 1 : 0.35}
+                        onClick={(e)=>{
+                          e.stopPropagation();
+                          if(sendSelectionToMafft([n.d.data.name ?? ""])) refreshMafftChecks();
+                        }}
+                        onMouseDown={(e)=>e.stopPropagation()}
+                      >
+                        <title>{mafftCheckboxPresent ? t("mafftCheckboxHint","Select / unselect this sequence in the MAFFT list") : t("mafftCheckboxMissing","Not in the MAFFT list (deleted or not loaded yet)")}</title>
+                        <rect
+                          width={mafftCheckboxSize}
+                          height={mafftCheckboxSize}
+                          rx={mafftCheckboxSize * 0.18}
+                          fill={mafftCheckboxChecked ? "#0284c7" : "#ffffff"}
+                          stroke={mafftCheckboxChecked ? "#0284c7" : "#64748b"}
+                          strokeWidth={1}
+                          strokeDasharray={mafftCheckboxPresent ? undefined : "2 2"}
+                        />
+                        {mafftCheckboxChecked && (
+                          <path
+                            d={`M${mafftCheckboxSize * 0.22},${mafftCheckboxSize * 0.52} L${mafftCheckboxSize * 0.42},${mafftCheckboxSize * 0.72} L${mafftCheckboxSize * 0.78},${mafftCheckboxSize * 0.3}`}
+                            fill="none"
+                            stroke="#ffffff"
+                            strokeWidth={Math.max(1.2, mafftCheckboxSize * 0.14)}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        )}
+                      </g>
+                    )}
                     {isSimpleLeaf && (
                       <text
-                        x={textStartX}
+                        x={labelX}
+                        data-export-x={showMafftCheckbox ? textStartX : undefined}
                         y={labelBaselineY}
                         fontSize={labelFontSize}
                         fill={labelFill}
