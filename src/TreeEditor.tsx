@@ -3893,7 +3893,7 @@ export default function TreeEditor(){
             </div>
             <button
               type="button"
-              className="flex w-8 flex-shrink-0 items-center justify-center bg-[#e7ecf3] text-lg font-bold text-[#4b6786]/70 hover:bg-white/60 hover:text-[#1f4870]"
+              className="-mb-px flex w-8 flex-shrink-0 items-center justify-center border-b-2 border-transparent bg-[#e7ecf3] text-lg font-bold text-[#4b6786]/70 hover:bg-white/60 hover:text-[#1f4870]"
               title={t("collapseMenu","Hide menu")}
               aria-label={t("collapseMenu","Hide menu")}
               onClick={(e)=>{ e.stopPropagation(); hideContextMenu(); setLeftPaneCollapsed(true); }}
